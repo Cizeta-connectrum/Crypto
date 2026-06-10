@@ -241,7 +241,7 @@ symbols = _get_symbols()
 with st.sidebar:
     st.header("Settings")
     symbol = st.selectbox("Symbol", symbols, index=symbols.index("EURUSD") if "EURUSD" in symbols else 0)
-    timeframe = st.selectbox("Timeframe", ["1d", "1h"], index=0)
+    timeframe = st.selectbox("Timeframe", ["1d", "4h", "1h", "15m", "5m", "1w"], index=0)
     source = st.selectbox(
         "Source", ["auto", "synthetic", "stooq", "yfinance", "binance", "csv", "tradingview"], index=0
     )

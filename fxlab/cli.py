@@ -703,7 +703,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_dl.add_argument("--symbols", nargs="+", required=True, metavar="SYM",
                       help="Symbols to download (e.g. EURUSD XAUUSD)")
     p_dl.add_argument("--timeframe", default="1d", metavar="TF",
-                      help="Bar timeframe (default: 1d)")
+                      help="Bar timeframe: 1w 1d 4h 1h 30m 15m 5m (default: 1d)")
     p_dl.add_argument("--source", default="auto",
                       choices=["auto", "stooq", "yfinance", "binance", "synthetic", "tradingview"],
                       help="Data source (default: auto)")

@@ -43,14 +43,25 @@ _TICKER_MAP: dict[str, list[str]] = {
 }
 
 _INTERVAL_MAP: dict[str, str] = {
+    "1w": "1wk",
     "1d": "1d",
+    "4h": "1h",   # yfinance has no 4h; returned as 1h (caller may resample)
     "1h": "1h",
-    "4h": "1h",   # yfinance has no 4 h; caller may resample
+    "30m": "30m",
+    "15m": "15m",
+    "5m":  "5m",
 }
 
-# Yahoo only serves hourly bars for roughly the last 730 days; asking for
-# more returns an empty frame. Stay one day inside the limit.
-_INTRADAY_MAX_DAYS = 729
+# Yahoo Finance intraday data availability limits (days back from today):
+#   1h / 4h : ~730 days
+#   30m      : ~60 days
+#   15m / 5m : ~60 days
+_INTRADAY_MAX_DAYS: dict[str, int] = {
+    "1h":  729,
+    "30m": 59,
+    "15m": 59,
+    "5m":  59,
+}
 
 
 def _history_kwargs(
@@ -58,15 +69,16 @@ def _history_kwargs(
 ) -> dict[str, str]:
     """Build the date-range kwargs for ``Ticker.history``.
 
-    * Intraday (1h): clamp ``start`` into Yahoo's ~730-day window (a too-early
-      start would silently return an empty frame).
-    * Daily with no ``start``: request ``period="max"`` (yfinance's default
-      period is only one month).
+    * Intraday: clamp ``start`` into Yahoo's availability window so a too-early
+      start does not silently return an empty frame.
+    * Daily / weekly with no ``start``: use ``period="max"`` (yfinance's
+      default period is only one month).
     """
     kwargs: dict[str, str] = {}
-    if interval == "1h":
+    max_days = _INTRADAY_MAX_DAYS.get(interval)
+    if max_days is not None:
         limit = pd.Timestamp.utcnow().tz_localize(None).normalize() - pd.Timedelta(
-            days=_INTRADAY_MAX_DAYS
+            days=max_days
         )
         s = pd.Timestamp(start) if start else None
         clamped = limit if s is None or s < limit else s

@@ -456,8 +456,9 @@ def test_yfinance_history_kwargs_clamps_intraday():
     from fxlab.data.sources.yfinance_src import _INTRADAY_MAX_DAYS, _history_kwargs
     import pandas as pd
 
-    limit = pd.Timestamp.utcnow().tz_localize(None).normalize() - pd.Timedelta(
-        days=_INTRADAY_MAX_DAYS
+    max_days_1h = _INTRADAY_MAX_DAYS["1h"]
+    limit = pd.Timestamp.now("UTC").tz_localize(None).normalize() - pd.Timedelta(
+        days=max_days_1h
     )
 
     # Too-early start for 1h is clamped into Yahoo's window.
@@ -472,6 +473,14 @@ def test_yfinance_history_kwargs_clamps_intraday():
     # No start for 1h still requests the full allowed window.
     kw = _history_kwargs("1h", None, None)
     assert pd.Timestamp(kw["start"]) == limit
+
+    # 15m is also clamped (60-day limit).
+    max_days_15m = _INTRADAY_MAX_DAYS["15m"]
+    limit_15m = pd.Timestamp.now("UTC").tz_localize(None).normalize() - pd.Timedelta(
+        days=max_days_15m
+    )
+    kw = _history_kwargs("15m", "2015-01-01", None)
+    assert pd.Timestamp(kw["start"]) == limit_15m
 
     # Daily with no start asks for the maximum period, not yfinance's
     # one-month default.
