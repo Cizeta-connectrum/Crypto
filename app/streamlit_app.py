@@ -293,7 +293,16 @@ with tab_data:
         if refresh:
             with st.spinner(f"Downloading {symbol} ({source})…"):
                 try:
+                    import os as _os
+                    _tv_env_set = False
+                    if source == "tradingview" and tv_username and tv_password:
+                        _os.environ["FXLAB_TV_USERNAME"] = tv_username
+                        _os.environ["FXLAB_TV_PASSWORD"] = tv_password
+                        _tv_env_set = True
                     statuses = _data_mod.download([symbol], timeframe=timeframe, source=source)
+                    if _tv_env_set:
+                        _os.environ.pop("FXLAB_TV_USERNAME", None)
+                        _os.environ.pop("FXLAB_TV_PASSWORD", None)
                     for sym, status in statuses.items():
                         if "ok" in status.lower() or "success" in status.lower():
                             st.success(f"{sym}: {status}")
