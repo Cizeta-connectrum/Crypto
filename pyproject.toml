@@ -21,7 +21,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 gsheets = ["gspread>=6.0", "google-auth>=2.0"]
-tradingview = ["tvdatafeed @ git+https://github.com/StreamAlpha/tvdatafeed.git"]
+# Original StreamAlpha repo was removed from GitHub; use the maintained fork.
+tradingview = ["tvdatafeed @ git+https://github.com/rongardF/tvdatafeed.git"]
 
 [project.scripts]
 fxlab = "fxlab.cli:main"

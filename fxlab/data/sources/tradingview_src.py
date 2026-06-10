@@ -1,6 +1,9 @@
 """TradingView data source via the *tvdatafeed* package.
 
-Install:  pip install git+https://github.com/StreamAlpha/tvdatafeed.git
+The original StreamAlpha/tvdatafeed repository was removed from GitHub;
+install the maintained fork instead:
+
+    pip install git+https://github.com/rongardF/tvdatafeed.git
 
 Credentials (tried in order):
   1. Explicit username/password arguments
@@ -37,9 +40,23 @@ _SYMBOL_MAP: dict[str, tuple[str, str]] = {
 _INTERVAL_MAP: dict[str, object] = {}  # populated lazily after import
 
 
-def _interval(timeframe: str):
+def _import_tvdatafeed():
+    """Import the tvdatafeed package (module name varies between forks)."""
+    try:
+        from tvDatafeed import Interval, TvDatafeed  # noqa: PLC0415
+    except ImportError:
+        try:
+            from tvdatafeed import Interval, TvDatafeed  # noqa: PLC0415
+        except ImportError as exc:
+            raise DataSourceError(
+                "tvdatafeed is not installed. "
+                "Run: pip install git+https://github.com/rongardF/tvdatafeed.git"
+            ) from exc
+    return TvDatafeed, Interval
+
+
+def _interval(timeframe: str, Interval):
     """Return tvdatafeed Interval enum value for *timeframe*."""
-    from tvdatafeed import Interval  # noqa: PLC0415
     mapping = {
         "1d": Interval.in_daily,
         "1h": Interval.in_1_hour,
@@ -74,13 +91,7 @@ def fetch(
     password:  TradingView password (overrides env var).
     n_bars:    Number of bars to request (default 5000).
     """
-    try:
-        from tvdatafeed import TvDatafeed  # noqa: PLC0415
-    except ImportError as exc:
-        raise DataSourceError(
-            "tvdatafeed is not installed. "
-            "Run: pip install git+https://github.com/StreamAlpha/tvdatafeed.git"
-        ) from exc
+    TvDatafeed, Interval = _import_tvdatafeed()
 
     sym = symbol.upper()
     if sym in _SYMBOL_MAP:
@@ -103,7 +114,7 @@ def fetch(
     except Exception as exc:  # noqa: BLE001
         raise DataSourceError(f"TradingView login failed: {exc}") from exc
 
-    interval = _interval(timeframe)
+    interval = _interval(timeframe, Interval)
     log.debug("TradingView fetch: %s/%s interval=%s n_bars=%d", exchange, tv_sym, timeframe, n_bars)
     try:
         df = tv.get_hist(symbol=tv_sym, exchange=exchange, interval=interval, n_bars=n_bars)
