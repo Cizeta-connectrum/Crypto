@@ -1,0 +1,15 @@
+# Streamlit configuration tuned for proxied environments
+# (Google Cloud Shell web preview, JupyterHub, etc.) where the app is
+# reached through a reverse proxy on a different origin and the default
+# CORS/XSRF protection breaks the /_stcore/stream WebSocket.
+# The Cloud Shell preview URL is only reachable by the logged-in user,
+# so relaxing these protections there is safe.
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+enableWebsocketCompression = false
+
+[browser]
+gatherUsageStats = false
