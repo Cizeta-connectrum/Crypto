@@ -564,8 +564,14 @@ def read_ranking_history(
     if not values:
         return pd.DataFrame()
 
-    header = [str(c) for c in values[0]]
-    df = pd.DataFrame(values[1:], columns=header)
+    header = [str(c).strip() for c in values[0]]
+    # Skip stray repeats of the header row mixed into the data.
+    data = [row for row in values[1:] if [str(c).strip() for c in row] != header]
+    df = pd.DataFrame(data, columns=header)
+    # The sheet grid may be wider than the header (padded empty names) and
+    # may contain duplicate column names; both break per-column coercion.
+    df = df.loc[:, [bool(c) for c in df.columns]]
+    df = df.loc[:, ~pd.Index(df.columns).duplicated(keep="first")]
     for col in df.columns:
         if col not in _RANKING_TEXT_COLS:
             df[col] = pd.to_numeric(df[col], errors="coerce")

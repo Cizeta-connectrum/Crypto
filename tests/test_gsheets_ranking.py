@@ -290,3 +290,28 @@ class TestReadRankingHistory:
         assert df["strategy"].iloc[0] == "sma_cross_10_50"
         assert df["symbol"].iloc[0] == "XAUUSD"
         assert df["run_at"].iloc[0] == "2026-06-10T12:00:00"
+
+    def test_padded_grid_and_repeated_header(self, fake_env: dict) -> None:
+        """Wider-than-header grids (empty padded names), duplicate column
+        names, and stray header rows in the data must not break the read."""
+        from fxlab.export.gsheets import append_ranking_history, read_ranking_history
+
+        append_ranking_history(_make_history_df(), credentials={"type": "service_account"})
+        ss = fake_env["client"]._spreadsheets["FXLab Results"]
+        ws = ss._worksheets["ranking_history"]
+        ws._data = [[str(c) for c in row] for row in ws._data]
+        # Simulate a grid wider than the header: pad every row with empties,
+        # then add a duplicated column name and a repeated header row.
+        header = ws._data[0]
+        ws._data = [row + ["", ""] for row in ws._data]
+        ws._data[0][-1] = "sharpe"  # duplicate name
+        ws._data.insert(2, list(ws._data[0]))  # stray header row inside data
+
+        df = read_ranking_history(credentials={"type": "service_account"})
+
+        assert len(df) == 2  # repeated header row dropped
+        assert list(df.columns).count("sharpe") == 1
+        assert "" not in df.columns
+        assert df["sharpe"].dtype.kind == "f"
+        assert float(df["sharpe"].iloc[0]) == 1.5
+        assert set(header) - {""} <= set(df.columns) | {""}
