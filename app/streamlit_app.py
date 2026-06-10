@@ -357,6 +357,12 @@ with tab_data:
                     if _tv_env_set:
                         _os.environ.pop("FXLAB_TV_USERNAME", None)
                         _os.environ.pop("FXLAB_TV_PASSWORD", None)
+                        # Auto-persist working credentials so they are
+                        # pre-filled on the next app start.
+                        try:
+                            _save_tv_credentials(tv_username, tv_password)
+                        except Exception:  # noqa: BLE001
+                            pass
                     for sym, status in statuses.items():
                         if "ok" in status.lower() or "success" in status.lower():
                             st.success(f"{sym}: {status}")
