@@ -8,3 +8,4 @@ plotly
 streamlit
 gspread
 google-auth
+tvdatafeed @ git+https://github.com/rongardF/tvdatafeed.git

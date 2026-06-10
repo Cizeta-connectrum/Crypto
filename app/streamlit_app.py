@@ -15,10 +15,17 @@ from __future__ import annotations
 import math
 import pathlib
 import re
+import sys
 from typing import Any
 
 import pandas as pd
 import streamlit as st
+
+# Make the repo root importable so `fxlab` works without `pip install -e .`
+# (needed on Streamlit Community Cloud / Hugging Face Spaces).
+_REPO_ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 # ---------------------------------------------------------------------------
 # TradingView credential helpers
