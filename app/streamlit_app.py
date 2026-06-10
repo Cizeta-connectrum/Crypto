@@ -89,6 +89,46 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
+# Optional password gate (for public hosting, e.g. a public HF Space).
+# Set FXLAB_APP_PASSWORD (env var / HF secret) or app_password in
+# st.secrets to require a password before the app renders.
+# ---------------------------------------------------------------------------
+
+
+def _expected_app_password() -> str:
+    import os
+    pw = os.environ.get("FXLAB_APP_PASSWORD", "")
+    if pw:
+        return pw
+    try:
+        return str(st.secrets.get("app_password", ""))
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _password_gate() -> None:
+    """Stop rendering until the correct password has been entered."""
+    import hmac
+
+    expected = _expected_app_password()
+    if not expected or st.session_state.get("_app_authed"):
+        return
+
+    st.title("🔒 FXLab")
+    st.markdown("パスワードを入力してください")
+    entered = st.text_input("パスワード", type="password", key="_app_pw_input")
+    if entered:
+        if hmac.compare_digest(entered, expected):
+            st.session_state["_app_authed"] = True
+            st.rerun()
+        else:
+            st.error("パスワードが違います")
+    st.stop()
+
+
+_password_gate()
+
+# ---------------------------------------------------------------------------
 # Safe imports (siblings may not exist in partial environments)
 # ---------------------------------------------------------------------------
 
