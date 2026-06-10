@@ -344,6 +344,8 @@ def _sweep_worker(
     df_records: list,  # serialized df passed as list of dicts
     df_index: list,    # index as ISO strings
     cost_bps: float,
+    sl_atr: float | None = None,
+    tp_atr: float | None = None,
 ) -> dict:
     """Worker function for ProcessPoolExecutor sweep."""
     import pandas as pd
@@ -359,7 +361,12 @@ def _sweep_worker(
 
         strategy = get_strategy(strategy_id)
         position = strategy.generate(df)
-        result = run_backtest(df, position, cost_bps=cost_bps)
+        bt_kwargs: dict = {"cost_bps": cost_bps}
+        if sl_atr is not None:
+            bt_kwargs["sl_atr"] = sl_atr
+        if tp_atr is not None:
+            bt_kwargs["tp_atr"] = tp_atr
+        result = run_backtest(df, position, **bt_kwargs)
 
         row = {
             "strategy_id": strategy_id,
@@ -431,7 +438,8 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
     symbol_data: dict[str, tuple[list, list]] = {}
     for sym in symbols:
         try:
-            df = load_ohlcv(sym, timeframe=args.timeframe, source=args.source)
+            df = load_ohlcv(sym, timeframe=args.timeframe, source=args.source,
+                            start=args.start, end=args.end)
             symbol_data[sym] = _df_to_serializable(df)
         except Exception as exc:  # noqa: BLE001
             print(f"Warning: could not load {sym}: {exc}", file=sys.stderr)
@@ -446,7 +454,7 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
             work_items.append((
                 s.id, s.family, s.params,
                 sym, records, index,
-                args.cost_bps,
+                args.cost_bps, args.sl_atr, args.tp_atr,
             ))
 
     total = len(work_items)
@@ -672,6 +680,14 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="Data source (default: auto)")
     p_sweep.add_argument("--cost-bps", type=float, default=1.0, metavar="BPS",
                          help="One-way transaction cost in bps (default: 1.0)")
+    p_sweep.add_argument("--start", default=None, metavar="YYYY-MM-DD",
+                         help="Start date filter")
+    p_sweep.add_argument("--end", default=None, metavar="YYYY-MM-DD",
+                         help="End date filter")
+    p_sweep.add_argument("--sl-atr", type=float, default=None, metavar="X",
+                         help="ATR stop-loss multiple applied to every backtest")
+    p_sweep.add_argument("--tp-atr", type=float, default=None, metavar="X",
+                         help="ATR take-profit multiple applied to every backtest")
     p_sweep.add_argument("--top", type=int, default=20, metavar="N",
                          help="Number of top results to display (default: 20)")
     p_sweep.add_argument("--metric", default="sharpe", metavar="M",
