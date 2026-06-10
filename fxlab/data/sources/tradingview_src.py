@@ -70,6 +70,35 @@ def _interval(timeframe: str, Interval):
     return iv
 
 
+# Approximate bars per calendar day, used to size n_bars from a start date.
+_BARS_PER_DAY: dict[str, float] = {
+    "1w": 0.15,
+    "1d": 1.0,
+    "4h": 6.0,
+    "1h": 24.0,
+    "30m": 48.0,
+    "15m": 96.0,
+    "5m": 288.0,
+}
+
+_MAX_BARS = 20_000
+
+
+def _bars_needed(timeframe: str, start: str | None, default: int) -> int:
+    """Estimate how many bars cover *start*..now (clamped to _MAX_BARS)."""
+    if not start:
+        return default
+    try:
+        days = (pd.Timestamp.now() - pd.Timestamp(start)).days
+    except (ValueError, TypeError):
+        return default
+    if days <= 0:
+        return default
+    per_day = _BARS_PER_DAY.get(timeframe, 1.0)
+    needed = int(days * per_day * 1.1) + 10  # margin for weekends/holidays
+    return max(default, min(needed, _MAX_BARS))
+
+
 def fetch(
     symbol: str,
     timeframe: str = "1d",
@@ -115,6 +144,7 @@ def fetch(
         raise DataSourceError(f"TradingView login failed: {exc}") from exc
 
     interval = _interval(timeframe, Interval)
+    n_bars = _bars_needed(timeframe, start, n_bars)
     log.debug("TradingView fetch: %s/%s interval=%s n_bars=%d", exchange, tv_sym, timeframe, n_bars)
     try:
         df = tv.get_hist(symbol=tv_sym, exchange=exchange, interval=interval, n_bars=n_bars)
@@ -139,12 +169,17 @@ def fetch(
     df = df.dropna(subset=["open", "high", "low", "close"])
 
     # Apply start/end filters
+    available = f"{df.index[0]:%Y-%m-%d} – {df.index[-1]:%Y-%m-%d}"
     if start:
         df = df[df.index >= pd.Timestamp(start)]
     if end:
         df = df[df.index <= pd.Timestamp(end)]
 
     if df.empty:
-        raise DataSourceError(f"TradingView: no data after filtering for {sym!r}")
+        raise DataSourceError(
+            f"TradingView: no data for {sym!r} in the requested range "
+            f"{start or '...'} – {end or '...'} (data available: {available}). "
+            "Adjust the Start/End dates in the sidebar."
+        )
 
     return validate_ohlcv(df)

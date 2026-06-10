@@ -323,7 +323,7 @@ with st.sidebar:
 
     st.subheader("Date range")
     start_date = st.date_input("Start", value=pd.Timestamp("2020-01-01").date())
-    end_date = st.date_input("End", value=pd.Timestamp("2024-12-31").date())
+    end_date = st.date_input("End", value=pd.Timestamp.today().date())
 
     st.subheader("Costs & Risk")
     cost_bps = st.number_input("Cost (bps)", min_value=0.0, value=1.0, step=0.5)
