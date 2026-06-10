@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fxlab"
+version = "0.1.0"
+description = "FX / gold / crypto strategy verification platform: 300 strategies, data downloaders, backtest engine, CLI and Streamlit dashboard"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+    "pyarrow>=14",
+    "requests>=2.31",
+    "yfinance>=0.2.40",
+    "plotly>=5.18",
+    "streamlit>=1.30",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+fxlab = "fxlab.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["fxlab*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
