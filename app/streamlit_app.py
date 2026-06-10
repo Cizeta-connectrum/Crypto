@@ -339,9 +339,287 @@ tp_atr_val = float(tp_atr) if tp_atr > 0 else None
 # Tabs
 # ---------------------------------------------------------------------------
 
-tab_data, tab_backtest, tab_sweep, tab_compare = st.tabs(
-    ["Data", "Backtest", "Sweep", "Compare"]
+tab_ranking, tab_data, tab_backtest, tab_sweep, tab_compare = st.tabs(
+    ["🏆 ランキング", "Data", "Backtest", "Sweep", "Compare"]
 )
+
+# ===================================================================
+# Tab: Ranking (one-click: run all 300 strategies, rank the best)
+# ===================================================================
+
+_RANKING_HISTORY_PATH = pathlib.Path(_REPO_ROOT) / "results" / "ranking_history.csv"
+_RANKING_HISTORY_COLS = [
+    "run_at", "symbol", "timeframe", "source", "start", "end",
+    "cost_bps", "sl_atr", "tp_atr",
+    "strategy", "family", "sharpe", "total_return", "cagr", "max_drawdown",
+    "win_rate", "profit_factor", "n_trades", "sortino", "calmar",
+]
+_RANKING_METRIC_COLS = [
+    "sharpe", "total_return", "cagr", "max_drawdown", "win_rate",
+    "profit_factor", "n_trades", "sortino", "calmar",
+]
+
+
+def _ranking_sort_key(v: Any) -> float:
+    """Numeric sort key: NaN/unparseable to -inf so they rank last."""
+    f = _safe_float(v)
+    if f is None or math.isnan(f):
+        return float("-inf")
+    return f
+
+
+def _format_ranking_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a display copy: percents with 2 decimals, ratios with 3, inf as ∞."""
+    disp = df.copy()
+
+    def _pct(v: Any) -> str:
+        f = _safe_float(v)
+        if f is None or math.isnan(f):
+            return "N/A"
+        if math.isinf(f):
+            return "∞" if f > 0 else "-∞"
+        return f"{f * 100:.2f}%"
+
+    def _ratio(v: Any) -> str:
+        f = _safe_float(v)
+        if f is None or math.isnan(f):
+            return "N/A"
+        if math.isinf(f):
+            return "∞" if f > 0 else "-∞"
+        return f"{f:.3f}"
+
+    def _pf(v: Any) -> str:
+        f = _safe_float(v)
+        if f is None or math.isnan(f):
+            return "N/A"
+        if math.isinf(f):
+            return "∞"
+        return f"{f:.2f}"
+
+    def _int(v: Any) -> str:
+        f = _safe_float(v)
+        if f is None or math.isnan(f):
+            return "N/A"
+        return str(int(f))
+
+    for col in ("total_return", "max_drawdown", "win_rate", "cagr"):
+        if col in disp.columns:
+            disp[col] = disp[col].apply(_pct)
+    for col in ("sharpe", "sortino", "calmar"):
+        if col in disp.columns:
+            disp[col] = disp[col].apply(_ratio)
+    if "profit_factor" in disp.columns:
+        disp["profit_factor"] = disp["profit_factor"].apply(_pf)
+    if "n_trades" in disp.columns:
+        disp["n_trades"] = disp["n_trades"].apply(_int)
+    return disp
+
+
+def _append_ranking_history(top_df: pd.DataFrame, meta: dict) -> None:
+    """Append the top rows of a run to results/ranking_history.csv (bounded)."""
+    _RANKING_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    rows = top_df.copy()
+    for key, val in meta.items():
+        rows[key] = val
+    rows = rows[[c for c in _RANKING_HISTORY_COLS if c in rows.columns]]
+    if _RANKING_HISTORY_PATH.exists():
+        try:
+            hist = pd.read_csv(_RANKING_HISTORY_PATH)
+            hist = pd.concat([hist, rows], ignore_index=True)
+        except Exception:  # noqa: BLE001
+            hist = rows
+    else:
+        hist = rows
+    if len(hist) > 5000:
+        hist = hist.tail(5000).reset_index(drop=True)
+    hist.to_csv(_RANKING_HISTORY_PATH, index=False)
+
+
+with tab_ranking:
+    st.header("🏆 戦略ランキング")
+    st.markdown("通貨を選んでボタンを押すだけ。全300戦略を一括検証して、成績の良い順に表示します。")
+
+    if isinstance(_strats_mod, Exception) or isinstance(_engine_mod, Exception) or isinstance(_data_mod, Exception):
+        missing = []
+        if isinstance(_strats_mod, Exception):
+            missing.append("fxlab.strategies")
+        if isinstance(_engine_mod, Exception):
+            missing.append("fxlab.engine")
+        if isinstance(_data_mod, Exception):
+            missing.append("fxlab.data")
+        st.error(f"必要なモジュールが読み込めません: {', '.join(missing)}")
+    else:
+        _risk_note = ""
+        if sl_atr_val:
+            _risk_note += f" | SL: ATR×{sl_atr_val:g}"
+        if tp_atr_val:
+            _risk_note += f" | TP: ATR×{tp_atr_val:g}"
+        st.caption(
+            f"対象: {symbol} / {timeframe} / {source} | "
+            f"期間: {start_str or '最初'}〜{end_str or '最新'} | "
+            f"コスト: {cost_bps}bps{_risk_note}"
+            "（サイドバーで変更できます）"
+        )
+
+        ranking_metric = st.selectbox(
+            "ランキング指標",
+            ["sharpe", "total_return", "profit_factor", "win_rate", "calmar", "max_drawdown", "sortino"],
+            index=0,
+            key="ranking_metric",
+            help="sharpe = リスクあたりの収益（おすすめ）",
+        )
+
+        run_ranking = st.button(
+            "🚀 全300戦略を実行",
+            key="btn_run_ranking",
+            type="primary",
+            use_container_width=True,
+        )
+
+        if run_ranking:
+            import time as _time
+
+            try:
+                all_strategies_rank = _strats_mod.build_all()
+            except Exception as exc:  # noqa: BLE001
+                all_strategies_rank = []
+                st.error(f"戦略リストを構築できませんでした: {exc}")
+
+            df_rank = None
+            if all_strategies_rank:
+                try:
+                    df_rank = _load_ohlcv(symbol, timeframe, source, start_str, end_str)
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"データを取得できませんでした: {exc}")
+
+            if df_rank is not None:
+                _t0 = _time.time()
+                total_rank = len(all_strategies_rank)
+                rank_progress = st.progress(0.0, text="検証を開始しています…")
+                rank_rows: list[dict] = []
+                rank_errors = 0
+
+                for i, s in enumerate(all_strategies_rank, start=1):
+                    try:
+                        pos = s.generate(df_rank)
+                        bt_kw_r: dict[str, Any] = {"cost_bps": float(cost_bps)}
+                        if sl_atr_val:
+                            bt_kw_r["sl_atr"] = sl_atr_val
+                        if tp_atr_val:
+                            bt_kw_r["tp_atr"] = tp_atr_val
+                        res = _engine_mod.run_backtest(df_rank, pos, **bt_kw_r)
+                        row_r: dict[str, Any] = {"strategy": s.id, "family": s.family}
+                        for mkey in _RANKING_METRIC_COLS:
+                            row_r[mkey] = res.metrics.get(mkey, float("nan"))
+                        rank_rows.append(row_r)
+                    except Exception:  # noqa: BLE001
+                        rank_errors += 1
+                    rank_progress.progress(
+                        min(i / total_rank, 1.0),
+                        text=f"{i}/{total_rank} — {s.id}",
+                    )
+
+                rank_progress.progress(1.0, text="完了！")
+                elapsed = _time.time() - _t0
+
+                if rank_rows:
+                    rank_df = pd.DataFrame(rank_rows)
+                    st.session_state["ranking_results"] = rank_df
+                    st.session_state["ranking_meta"] = {
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "source": source,
+                        "start": start_str or "",
+                        "end": end_str or "",
+                        "cost_bps": float(cost_bps),
+                        "sl_atr": sl_atr_val or "",
+                        "tp_atr": tp_atr_val or "",
+                    }
+
+                    # Persist the top 50 of this run to the all-time history.
+                    sorted_for_hist = rank_df.iloc[
+                        rank_df[ranking_metric].apply(_ranking_sort_key).argsort()[::-1].values
+                    ]
+                    hist_meta = dict(st.session_state["ranking_meta"])
+                    hist_meta["run_at"] = pd.Timestamp.now().isoformat(timespec="seconds")
+                    try:
+                        _append_ranking_history(sorted_for_hist.head(50), hist_meta)
+                    except Exception as exc:  # noqa: BLE001
+                        st.warning(f"履歴の保存に失敗しました: {exc}")
+
+                    best_row = sorted_for_hist.iloc[0]
+                    st.success(
+                        f"完了！ {len(rank_rows)}戦略を{elapsed:.1f}秒で検証しました。"
+                        f" 1位: **{best_row['strategy']}**"
+                        f"（{ranking_metric} = {_fmt_metric(best_row[ranking_metric])}）"
+                    )
+                    if rank_errors:
+                        st.warning(f"{rank_errors}件の戦略でエラーが発生し、スキップしました。")
+                else:
+                    st.error("有効な結果が得られませんでした。データや期間の設定を確認してください。")
+
+        # --- Current-run ranking (re-rendered from session state) ---
+        if "ranking_results" in st.session_state:
+            rank_df = st.session_state["ranking_results"]
+            meta_r = st.session_state.get("ranking_meta", {})
+            if meta_r:
+                st.caption(
+                    f"検証結果: {meta_r.get('symbol', '')} / {meta_r.get('timeframe', '')}"
+                    f" / {meta_r.get('source', '')} | "
+                    f"期間: {meta_r.get('start') or '最初'}〜{meta_r.get('end') or '最新'}"
+                )
+
+            sort_col_r = ranking_metric if ranking_metric in rank_df.columns else "sharpe"
+            sorted_rank = rank_df.iloc[
+                rank_df[sort_col_r].apply(_ranking_sort_key).argsort()[::-1].values
+            ].reset_index(drop=True)
+            sorted_rank.insert(0, "順位", range(1, len(sorted_rank) + 1))
+
+            st.subheader(f"📊 今回のランキング（{sort_col_r}順）")
+            st.dataframe(
+                _format_ranking_df(sorted_rank),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        # --- All-time leaderboard ---
+        st.subheader("🏛 歴代ランキング（通算ベスト50）")
+        if _RANKING_HISTORY_PATH.exists():
+            try:
+                hist_df = pd.read_csv(_RANKING_HISTORY_PATH)
+            except Exception as exc:  # noqa: BLE001
+                hist_df = None
+                st.warning(f"履歴ファイルを読み込めませんでした: {exc}")
+            if hist_df is not None and not hist_df.empty:
+                hist_metric = ranking_metric if ranking_metric in hist_df.columns else "sharpe"
+                hist_df["_sort"] = hist_df[hist_metric].apply(_ranking_sort_key)
+                # Best record per (strategy, symbol, timeframe)
+                dedup_keys = [k for k in ("strategy", "symbol", "timeframe") if k in hist_df.columns]
+                best_hist = (
+                    hist_df.sort_values("_sort", ascending=False)
+                    .drop_duplicates(subset=dedup_keys, keep="first")
+                    .head(50)
+                    .drop(columns=["_sort"])
+                    .reset_index(drop=True)
+                )
+                best_hist.insert(0, "順位", range(1, len(best_hist) + 1))
+                show_cols = ["順位", "strategy", "family", "symbol", "timeframe", "run_at"] + [
+                    c for c in _RANKING_METRIC_COLS if c in best_hist.columns
+                ]
+                show_cols = [c for c in show_cols if c in best_hist.columns]
+                st.dataframe(
+                    _format_ranking_df(best_hist[show_cols]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("まだ履歴がありません。上のボタンで検証を実行すると記録されます。")
+        else:
+            st.info("まだ履歴がありません。上のボタンで検証を実行すると記録されます。")
+        st.caption(
+            "※ Hugging Face Spaces ではストレージが一時的なため、Space の再起動で履歴はリセットされます。"
+            "恒久的に記録したい場合は Sweep タブの Google Sheets エクスポートをご利用ください。"
+        )
 
 # ===================================================================
 # Tab: Data
