@@ -5,8 +5,11 @@ Credential resolution (in priority order)
 1. Explicit ``credentials=`` argument — either a ``dict`` of service-account
    info (as returned by ``json.load`` on the key file) or a ``str``/
    ``pathlib.Path`` pointing to the JSON key file on disk.
-2. Environment variable ``FXLAB_GSHEET_CREDENTIALS`` — path to a JSON key
-   file.
+2. Environment variable ``FXLAB_GSHEET_CREDENTIALS`` — either a path to a
+   JSON key file, or the raw JSON key content itself (a value whose first
+   non-whitespace character is ``{``).  The raw-JSON form is convenient on
+   platforms where secrets are exposed as environment variables only
+   (e.g. Hugging Face Spaces).
 3. Environment variable ``GOOGLE_APPLICATION_CREDENTIALS`` — path to a JSON
    key file (standard Google SDK convention).
 
@@ -24,6 +27,7 @@ Optional dependency: ``pip install fxlab[gsheets]``
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -60,6 +64,18 @@ _SCOPES: list[str] = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+# Worksheet that accumulates ranking-run history (Streamlit Ranking tab).
+_RANKING_WS_TITLE = "ranking_history"
+
+# Default spreadsheet target when none is given explicitly or via env.
+_DEFAULT_SPREADSHEET = "FXLab Results"
+
+# Columns that must never be numerically coerced when reading history back.
+_RANKING_TEXT_COLS: frozenset[str] = frozenset({
+    "strategy", "family", "symbol", "timeframe", "source",
+    "run_at", "start", "end",
+})
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -90,14 +106,20 @@ def _lazy_import_service_account() -> Any:
         ) from exc
 
 
+def _is_json_value(value: str) -> bool:
+    """True if the value looks like inline JSON rather than a file path."""
+    return value.lstrip().startswith("{")
+
+
 def _resolve_credentials(credentials: dict | str | Path | None) -> Any:
     """Resolve credentials to a google.oauth2.service_account.Credentials object.
 
     Parameters
     ----------
     credentials:
-        A dict (service-account info), a path str/Path to a JSON key file, or
-        None.  When None the environment is checked; see module docstring.
+        A dict (service-account info), a path str/Path to a JSON key file, a
+        str of raw JSON key content, or None.  When None the environment is
+        checked; see module docstring.
 
     Returns
     -------
@@ -114,17 +136,34 @@ def _resolve_credentials(credentials: dict | str | Path | None) -> Any:
     if isinstance(credentials, dict):
         return sa_mod.Credentials.from_service_account_info(credentials, scopes=_SCOPES)
 
-    # --- 2. Explicit path ---
+    # --- 2. Explicit path or raw JSON string ---
     if isinstance(credentials, (str, Path)):
+        if isinstance(credentials, str) and _is_json_value(credentials):
+            try:
+                info = json.loads(credentials)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    "credentials looks like JSON but could not be parsed"
+                ) from exc
+            return sa_mod.Credentials.from_service_account_info(info, scopes=_SCOPES)
         path = Path(credentials)
         if not path.exists():
             raise RuntimeError(f"Credentials file not found: {path}")
         return sa_mod.Credentials.from_service_account_file(str(path), scopes=_SCOPES)
 
-    # --- 3. Env: FXLAB_GSHEET_CREDENTIALS ---
-    env_path = os.environ.get("FXLAB_GSHEET_CREDENTIALS")
-    if env_path:
-        p = Path(env_path)
+    # --- 3. Env: FXLAB_GSHEET_CREDENTIALS (path OR raw JSON key content) ---
+    env_val = os.environ.get("FXLAB_GSHEET_CREDENTIALS")
+    if env_val:
+        if _is_json_value(env_val):
+            try:
+                info = json.loads(env_val)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    "FXLAB_GSHEET_CREDENTIALS looks like JSON but could not "
+                    "be parsed"
+                ) from exc
+            return sa_mod.Credentials.from_service_account_info(info, scopes=_SCOPES)
+        p = Path(env_val)
         if not p.exists():
             raise RuntimeError(
                 f"FXLAB_GSHEET_CREDENTIALS points to missing file: {p}"
@@ -420,3 +459,114 @@ def export_sweep(
     logger.info("Created detail worksheet '%s' with %d rows.", run_id, len(results))
 
     return url
+
+
+# ---------------------------------------------------------------------------
+# Ranking history (Streamlit Ranking tab)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_spreadsheet_target(spreadsheet: str | None) -> str:
+    """Default spreadsheet target: arg → env FXLAB_GSHEET_SPREADSHEET → fixed."""
+    return (
+        spreadsheet
+        or os.environ.get("FXLAB_GSHEET_SPREADSHEET")
+        or _DEFAULT_SPREADSHEET
+    )
+
+
+def append_ranking_history(
+    df: pd.DataFrame,
+    spreadsheet: str | None = None,
+    credentials: dict | str | Path | None = None,
+) -> str:
+    """Append ranking rows to the 'ranking_history' worksheet.
+
+    ``spreadsheet`` defaults to env ``FXLAB_GSHEET_SPREADSHEET`` or
+    ``"FXLab Results"``.  The worksheet is created with a header row (the
+    DataFrame's columns) if missing.
+
+    Parameters
+    ----------
+    df:
+        Ranking rows including run metadata columns (run_at, symbol, …).
+    spreadsheet:
+        Target spreadsheet URL / ID / title (optional, see above).
+    credentials:
+        Optional explicit credentials; see module docstring.
+
+    Returns
+    -------
+    str
+        The spreadsheet URL.
+    """
+    gspread = _lazy_import_gspread()
+
+    creds = _resolve_credentials(credentials)
+    gc = gspread.authorize(creds)
+    ssheet = _open_or_create_spreadsheet(gc, _resolve_spreadsheet_target(spreadsheet))
+
+    try:
+        ws = ssheet.worksheet(_RANKING_WS_TITLE)
+    except gspread.WorksheetNotFound:
+        ws = ssheet.add_worksheet(
+            title=_RANKING_WS_TITLE,
+            rows=max(len(df) + 1, 2),
+            cols=max(len(df.columns), 1),
+        )
+
+    rows = df_to_rows(df)
+    header, data_rows = rows[0], rows[1:]
+
+    existing = ws.get_all_values()
+    if not existing:
+        ws.append_row(header, value_input_option="USER_ENTERED")
+    if data_rows:
+        ws.append_rows(data_rows, value_input_option="USER_ENTERED")
+
+    logger.info(
+        "Appended %d ranking rows to worksheet %r.", len(data_rows), _RANKING_WS_TITLE
+    )
+    return str(ssheet.url)
+
+
+def read_ranking_history(
+    spreadsheet: str | None = None,
+    credentials: dict | str | Path | None = None,
+) -> pd.DataFrame:
+    """Read the full 'ranking_history' worksheet into a DataFrame.
+
+    Returns an empty DataFrame if the worksheet doesn't exist.  Numeric
+    columns are coerced with ``pd.to_numeric(errors="coerce")``; identifier
+    columns (strategy / family / symbol / timeframe / source / run_at /
+    start / end) are left as strings.
+
+    Parameters
+    ----------
+    spreadsheet:
+        Target spreadsheet URL / ID / title.  Defaults to env
+        ``FXLAB_GSHEET_SPREADSHEET`` or ``"FXLab Results"``.
+    credentials:
+        Optional explicit credentials; see module docstring.
+    """
+    gspread = _lazy_import_gspread()
+
+    creds = _resolve_credentials(credentials)
+    gc = gspread.authorize(creds)
+    ssheet = _open_or_create_spreadsheet(gc, _resolve_spreadsheet_target(spreadsheet))
+
+    try:
+        ws = ssheet.worksheet(_RANKING_WS_TITLE)
+    except gspread.WorksheetNotFound:
+        return pd.DataFrame()
+
+    values = ws.get_all_values()
+    if not values:
+        return pd.DataFrame()
+
+    header = [str(c) for c in values[0]]
+    df = pd.DataFrame(values[1:], columns=header)
+    for col in df.columns:
+        if col not in _RANKING_TEXT_COLS:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df

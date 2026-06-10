@@ -104,6 +104,7 @@ def _try_import(module_path: str) -> Any:
 _data_mod = _try_import("fxlab.data")
 _engine_mod = _try_import("fxlab.engine")
 _strats_mod = _try_import("fxlab.strategies")
+_gsheets_mod = _try_import("fxlab.export.gsheets")
 
 # ---------------------------------------------------------------------------
 # SYMBOLS list (fallback if data module missing)
@@ -415,13 +416,17 @@ def _format_ranking_df(df: pd.DataFrame) -> pd.DataFrame:
     return disp
 
 
-def _append_ranking_history(top_df: pd.DataFrame, meta: dict) -> None:
-    """Append the top rows of a run to results/ranking_history.csv (bounded)."""
-    _RANKING_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+def _prepare_ranking_history_rows(top_df: pd.DataFrame, meta: dict) -> pd.DataFrame:
+    """Attach run metadata columns to the top rows of a ranking run."""
     rows = top_df.copy()
     for key, val in meta.items():
         rows[key] = val
-    rows = rows[[c for c in _RANKING_HISTORY_COLS if c in rows.columns]]
+    return rows[[c for c in _RANKING_HISTORY_COLS if c in rows.columns]]
+
+
+def _append_ranking_history(rows: pd.DataFrame) -> None:
+    """Append prepared ranking rows to results/ranking_history.csv (bounded)."""
+    _RANKING_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     if _RANKING_HISTORY_PATH.exists():
         try:
             hist = pd.read_csv(_RANKING_HISTORY_PATH)
@@ -433,6 +438,42 @@ def _append_ranking_history(top_df: pd.DataFrame, meta: dict) -> None:
     if len(hist) > 5000:
         hist = hist.tail(5000).reset_index(drop=True)
     hist.to_csv(_RANKING_HISTORY_PATH, index=False)
+
+
+def _gsheets_credentials() -> dict | None:
+    """Explicit credentials from st.secrets[gcp_service_account], if present."""
+    try:
+        if "gcp_service_account" in st.secrets:
+            return dict(st.secrets["gcp_service_account"])
+    except Exception:  # noqa: BLE001
+        pass  # st.secrets not available; fall back to env-based resolution
+    return None
+
+
+def _gsheets_configured() -> bool:
+    """True if Google Sheets credentials are configured (secrets or env)."""
+    if _gsheets_credentials() is not None:
+        return True
+    import os
+    return bool(
+        os.environ.get("FXLAB_GSHEET_CREDENTIALS")
+        or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    )
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _read_ranking_history_gsheets() -> pd.DataFrame:
+    """Read the all-time ranking history from Google Sheets (cached 60s)."""
+    if isinstance(_gsheets_mod, Exception):
+        raise RuntimeError(f"fxlab.export.gsheets is not available: {_gsheets_mod}")
+    return _gsheets_mod.read_ranking_history(credentials=_gsheets_credentials())
+
+
+def _append_ranking_history_gsheets(rows: pd.DataFrame) -> None:
+    """Append prepared ranking rows to the Google Sheets history worksheet."""
+    if isinstance(_gsheets_mod, Exception):
+        raise RuntimeError(f"fxlab.export.gsheets is not available: {_gsheets_mod}")
+    _gsheets_mod.append_ranking_history(rows, credentials=_gsheets_credentials())
 
 
 with tab_ranking:
@@ -542,10 +583,23 @@ with tab_ranking:
                     ]
                     hist_meta = dict(st.session_state["ranking_meta"])
                     hist_meta["run_at"] = pd.Timestamp.now().isoformat(timespec="seconds")
+                    hist_rows = _prepare_ranking_history_rows(
+                        sorted_for_hist.head(50), hist_meta
+                    )
                     try:
-                        _append_ranking_history(sorted_for_hist.head(50), hist_meta)
+                        _append_ranking_history(hist_rows)
                     except Exception as exc:  # noqa: BLE001
                         st.warning(f"履歴の保存に失敗しました: {exc}")
+
+                    # Also sync to Google Sheets (permanent storage) when
+                    # credentials are configured; never block the rest.
+                    if _gsheets_configured():
+                        try:
+                            _append_ranking_history_gsheets(hist_rows)
+                            _read_ranking_history_gsheets.clear()
+                            st.caption("✅ Google Sheets に保存しました")
+                        except Exception as exc:  # noqa: BLE001
+                            st.warning(f"Google Sheets への保存に失敗しました: {exc}")
 
                     best_row = sorted_for_hist.iloc[0]
                     st.success(
@@ -584,42 +638,70 @@ with tab_ranking:
 
         # --- All-time leaderboard ---
         st.subheader("🏛 歴代ランキング（通算ベスト50）")
-        if _RANKING_HISTORY_PATH.exists():
+
+        hist_df: pd.DataFrame | None = None
+        hist_source: str = ""
+
+        # 1. Google Sheets (when configured)
+        if _gsheets_configured():
+            try:
+                hist_df = _read_ranking_history_gsheets()
+                hist_source = "Google Sheets"
+            except Exception as exc:  # noqa: BLE001
+                hist_df = None
+                st.warning(f"Google Sheets から履歴を読み込めませんでした: {exc}")
+
+        # 2. Fallback: local CSV (Sheets not configured, failed, or empty)
+        if (hist_df is None or hist_df.empty) and _RANKING_HISTORY_PATH.exists():
             try:
                 hist_df = pd.read_csv(_RANKING_HISTORY_PATH)
+                hist_source = (
+                    "ローカルCSV（フォールバック）"
+                    if _gsheets_configured()
+                    else "ローカルCSV（Sheets未設定）"
+                )
             except Exception as exc:  # noqa: BLE001
                 hist_df = None
                 st.warning(f"履歴ファイルを読み込めませんでした: {exc}")
-            if hist_df is not None and not hist_df.empty:
-                hist_metric = ranking_metric if ranking_metric in hist_df.columns else "sharpe"
-                hist_df["_sort"] = hist_df[hist_metric].apply(_ranking_sort_key)
-                # Best record per (strategy, symbol, timeframe)
-                dedup_keys = [k for k in ("strategy", "symbol", "timeframe") if k in hist_df.columns]
-                best_hist = (
-                    hist_df.sort_values("_sort", ascending=False)
-                    .drop_duplicates(subset=dedup_keys, keep="first")
-                    .head(50)
-                    .drop(columns=["_sort"])
-                    .reset_index(drop=True)
-                )
-                best_hist.insert(0, "順位", range(1, len(best_hist) + 1))
-                show_cols = ["順位", "strategy", "family", "symbol", "timeframe", "run_at"] + [
-                    c for c in _RANKING_METRIC_COLS if c in best_hist.columns
-                ]
-                show_cols = [c for c in show_cols if c in best_hist.columns]
-                st.dataframe(
-                    _format_ranking_df(best_hist[show_cols]),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-            else:
-                st.info("まだ履歴がありません。上のボタンで検証を実行すると記録されます。")
+
+        if hist_df is not None and not hist_df.empty:
+            st.caption(f"データソース: {hist_source}")
+            hist_metric = ranking_metric if ranking_metric in hist_df.columns else "sharpe"
+            hist_df = hist_df.copy()
+            hist_df["_sort"] = hist_df[hist_metric].apply(_ranking_sort_key)
+            # Best record per (strategy, symbol, timeframe)
+            dedup_keys = [k for k in ("strategy", "symbol", "timeframe") if k in hist_df.columns]
+            best_hist = (
+                hist_df.sort_values("_sort", ascending=False)
+                .drop_duplicates(subset=dedup_keys, keep="first")
+                .head(50)
+                .drop(columns=["_sort"])
+                .reset_index(drop=True)
+            )
+            best_hist.insert(0, "順位", range(1, len(best_hist) + 1))
+            show_cols = ["順位", "strategy", "family", "symbol", "timeframe", "run_at"] + [
+                c for c in _RANKING_METRIC_COLS if c in best_hist.columns
+            ]
+            show_cols = [c for c in show_cols if c in best_hist.columns]
+            st.dataframe(
+                _format_ranking_df(best_hist[show_cols]),
+                use_container_width=True,
+                hide_index=True,
+            )
         else:
             st.info("まだ履歴がありません。上のボタンで検証を実行すると記録されます。")
-        st.caption(
-            "※ Hugging Face Spaces ではストレージが一時的なため、Space の再起動で履歴はリセットされます。"
-            "恒久的に記録したい場合は Sweep タブの Google Sheets エクスポートをご利用ください。"
-        )
+
+        if _gsheets_configured():
+            st.caption(
+                "※ 履歴は Google Sheets に恒久的に保存されます"
+                "（実行のたびにトップ50が自動追記されます）。"
+            )
+        else:
+            st.caption(
+                "※ Hugging Face Spaces ではストレージが一時的なため、Space の再起動で履歴はリセットされます。"
+                "恒久的に記録したい場合は Google Sheets のサービスアカウントを設定するか、"
+                "Sweep タブの Google Sheets エクスポートをご利用ください。"
+            )
 
 # ===================================================================
 # Tab: Data
