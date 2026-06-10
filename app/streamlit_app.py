@@ -13,10 +13,57 @@ Run:
 from __future__ import annotations
 
 import math
+import pathlib
+import re
 from typing import Any
 
 import pandas as pd
 import streamlit as st
+
+# ---------------------------------------------------------------------------
+# TradingView credential helpers
+# ---------------------------------------------------------------------------
+
+_SECRETS_PATH = pathlib.Path(__file__).parent.parent / ".streamlit" / "secrets.toml"
+
+
+def _load_tv_credentials() -> tuple[str, str]:
+    """Return (username, password) from saved secrets, or ("", "")."""
+    # 1. Streamlit secrets (works on Streamlit Cloud and locally)
+    try:
+        tv = st.secrets.get("tradingview", {})
+        u = tv.get("username", "")
+        p = tv.get("password", "")
+        if u:
+            return str(u), str(p)
+    except Exception:  # noqa: BLE001
+        pass
+    # 2. Read secrets.toml directly (before Streamlit has loaded it this run)
+    try:
+        text = _SECRETS_PATH.read_text(encoding="utf-8")
+        u_m = re.search(r'^\s*username\s*=\s*"([^"]*)"', text, re.MULTILINE)
+        p_m = re.search(r'^\s*password\s*=\s*"([^"]*)"', text, re.MULTILINE)
+        if u_m:
+            return u_m.group(1), (p_m.group(1) if p_m else "")
+    except Exception:  # noqa: BLE001
+        pass
+    return "", ""
+
+
+def _save_tv_credentials(username: str, password: str) -> None:
+    """Persist TradingView credentials into .streamlit/secrets.toml."""
+    _SECRETS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    text = _SECRETS_PATH.read_text(encoding="utf-8") if _SECRETS_PATH.exists() else ""
+    # Remove existing [tradingview] block
+    text = re.sub(
+        r"\[tradingview\][^\[]*",
+        "",
+        text,
+        flags=re.DOTALL,
+    ).rstrip()
+    # Append updated block
+    block = f'\n\n[tradingview]\nusername = "{username}"\npassword = "{password}"\n'
+    _SECRETS_PATH.write_text(text + block, encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Page config (must be first Streamlit call)
@@ -248,8 +295,15 @@ with st.sidebar:
 
     if source == "tradingview":
         st.subheader("TradingView Credentials")
-        tv_username = st.text_input("TV Username", value="", key="tv_username")
-        tv_password = st.text_input("TV Password", value="", type="password", key="tv_password")
+        _saved_u, _saved_p = _load_tv_credentials()
+        tv_username = st.text_input("TV Username", value=_saved_u, key="tv_username")
+        tv_password = st.text_input("TV Password", value=_saved_p, type="password", key="tv_password")
+        if st.button("Save credentials", key="btn_save_tv"):
+            try:
+                _save_tv_credentials(tv_username, tv_password)
+                st.success("Saved!")
+            except Exception as _e:  # noqa: BLE001
+                st.error(f"Could not save: {_e}")
     else:
         tv_username = ""
         tv_password = ""
