@@ -704,6 +704,21 @@ with tab_ranking:
                 hist_df = None
                 st.warning(f"履歴ファイルを読み込めませんでした: {exc}")
 
+        # Guard against history whose schema lacks any known metric column
+        # (e.g. a hand-edited or corrupted worksheet).
+        if (
+            hist_df is not None
+            and not hist_df.empty
+            and not any(c in hist_df.columns for c in _RANKING_METRIC_COLS)
+        ):
+            st.warning(
+                "履歴データの形式を認識できませんでした"
+                f"（読み込んだ列: {list(hist_df.columns)[:8]}）。"
+                "スプレッドシートの「ranking_history」シートを削除してから"
+                "再実行すると、正しい形式で作り直されます。"
+            )
+            hist_df = None
+
         if hist_df is not None and not hist_df.empty:
             st.caption(f"データソース: {hist_source}")
             hist_metric = ranking_metric if ranking_metric in hist_df.columns else "sharpe"

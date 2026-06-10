@@ -315,3 +315,29 @@ class TestReadRankingHistory:
         assert df["sharpe"].dtype.kind == "f"
         assert float(df["sharpe"].iloc[0]) == 1.5
         assert set(header) - {""} <= set(df.columns) | {""}
+
+    def test_header_not_in_first_row(self, fake_env: dict) -> None:
+        """Blank/garbage rows above the header must not break the read."""
+        from fxlab.export.gsheets import append_ranking_history, read_ranking_history
+
+        append_ranking_history(_make_history_df(), credentials={"type": "service_account"})
+        ss = fake_env["client"]._spreadsheets["FXLab Results"]
+        ws = ss._worksheets["ranking_history"]
+        ws._data = [[str(c) for c in row] for row in ws._data]
+        width = len(ws._data[0])
+        ws._data.insert(0, [""] * width)  # leading blank row
+
+        df = read_ranking_history(credentials={"type": "service_account"})
+        assert len(df) == 2
+        assert df["strategy"].iloc[0] == "sma_cross_10_50"
+
+    def test_no_recognizable_header_returns_empty(self, fake_env: dict) -> None:
+        from fxlab.export.gsheets import append_ranking_history, read_ranking_history
+
+        append_ranking_history(_make_history_df(), credentials={"type": "service_account"})
+        ss = fake_env["client"]._spreadsheets["FXLab Results"]
+        ws = ss._worksheets["ranking_history"]
+        ws._data = ws._data[1:]  # drop the header row entirely
+
+        df = read_ranking_history(credentials={"type": "service_account"})
+        assert df.empty

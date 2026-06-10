@@ -564,9 +564,28 @@ def read_ranking_history(
     if not values:
         return pd.DataFrame()
 
-    header = [str(c).strip() for c in values[0]]
+    # Locate the header row: appends can leave stray/blank rows above it,
+    # and a sheet without any recognizable header is unusable.
+    header_idx = None
+    for i, row in enumerate(values):
+        cells = [str(c).strip() for c in row]
+        if "strategy" in cells and "run_at" in cells:
+            header_idx = i
+            break
+    if header_idx is None:
+        logger.warning(
+            "Worksheet %r has no recognizable header row; returning empty.",
+            _RANKING_WS_TITLE,
+        )
+        return pd.DataFrame()
+
+    header = [str(c).strip() for c in values[header_idx]]
     # Skip stray repeats of the header row mixed into the data.
-    data = [row for row in values[1:] if [str(c).strip() for c in row] != header]
+    data = [
+        row
+        for row in values[header_idx + 1 :]
+        if [str(c).strip() for c in row] != header
+    ]
     df = pd.DataFrame(data, columns=header)
     # The sheet grid may be wider than the header (padded empty names) and
     # may contain duplicate column names; both break per-column coercion.
