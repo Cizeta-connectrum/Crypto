@@ -317,6 +317,13 @@ def load_ohlcv(
             "or import a CSV file with fxlab.data.sources.csv_import.import_csv()."
         )
 
+    # ---- "tradingview" source ----
+    if source == "tradingview":
+        from fxlab.data.sources import tradingview_src  # noqa: PLC0415
+        df = tradingview_src.fetch(sym, timeframe=timeframe, start=start, end=end)
+        _merge_and_cache(df, sym, timeframe, "tradingview", refresh)
+        return _filter_dates(df, start, end)
+
     # ---- Explicit source ----
     fetchers = {
         "stooq": _fetch_stooq,
@@ -327,7 +334,7 @@ def load_ohlcv(
     if fetcher is None:
         raise DataSourceError(
             f"Unknown source {source!r}. "
-            f"Valid values: auto, stooq, yfinance, binance, synthetic, csv."
+            f"Valid values: auto, stooq, yfinance, binance, synthetic, csv, tradingview."
         )
 
     try:

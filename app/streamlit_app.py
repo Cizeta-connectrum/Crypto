@@ -243,8 +243,16 @@ with st.sidebar:
     symbol = st.selectbox("Symbol", symbols, index=symbols.index("EURUSD") if "EURUSD" in symbols else 0)
     timeframe = st.selectbox("Timeframe", ["1d", "1h"], index=0)
     source = st.selectbox(
-        "Source", ["auto", "synthetic", "stooq", "yfinance", "binance", "csv"], index=0
+        "Source", ["auto", "synthetic", "stooq", "yfinance", "binance", "csv", "tradingview"], index=0
     )
+
+    if source == "tradingview":
+        st.subheader("TradingView Credentials")
+        tv_username = st.text_input("TV Username", value="", key="tv_username")
+        tv_password = st.text_input("TV Password", value="", type="password", key="tv_password")
+    else:
+        tv_username = ""
+        tv_password = ""
 
     st.subheader("Date range")
     start_date = st.date_input("Start", value=pd.Timestamp("2020-01-01").date())

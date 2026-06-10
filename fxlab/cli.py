@@ -705,7 +705,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_dl.add_argument("--timeframe", default="1d", metavar="TF",
                       help="Bar timeframe (default: 1d)")
     p_dl.add_argument("--source", default="auto",
-                      choices=["auto", "stooq", "yfinance", "binance", "synthetic"],
+                      choices=["auto", "stooq", "yfinance", "binance", "synthetic", "tradingview"],
                       help="Data source (default: auto)")
 
     # ---- data ----
@@ -725,7 +725,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--timeframe", default="1d", metavar="TF",
                        help="Bar timeframe (default: 1d)")
     p_run.add_argument("--source", default="auto",
-                       choices=["auto", "stooq", "yfinance", "binance", "synthetic"],
+                       choices=["auto", "stooq", "yfinance", "binance", "synthetic", "tradingview"],
                        help="Data source (default: auto)")
     p_run.add_argument("--start", default=None, metavar="YYYY-MM-DD",
                        help="Start date")
@@ -749,7 +749,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_sweep.add_argument("--timeframe", default="1d", metavar="TF",
                          help="Bar timeframe (default: 1d)")
     p_sweep.add_argument("--source", default="auto",
-                         choices=["auto", "stooq", "yfinance", "binance", "synthetic"],
+                         choices=["auto", "stooq", "yfinance", "binance", "synthetic", "tradingview"],
                          help="Data source (default: auto)")
     p_sweep.add_argument("--cost-bps", type=float, default=1.0, metavar="BPS",
                          help="One-way transaction cost in bps (default: 1.0)")
