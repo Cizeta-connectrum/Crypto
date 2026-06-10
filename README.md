@@ -1,3 +1,13 @@
+---
+title: FXLab
+emoji: 📈
+colorFrom: blue
+colorTo: green
+sdk: streamlit
+app_file: app/streamlit_app.py
+pinned: false
+---
+
 # FXLab — FX / Gold / Crypto Strategy Verification Platform
 
 ## 日本語概要

@@ -45,7 +45,13 @@ def _load_tv_credentials() -> tuple[str, str]:
             return str(u), str(p)
     except Exception:  # noqa: BLE001
         pass
-    # 2. Read secrets.toml directly (before Streamlit has loaded it this run)
+    # 2. Environment variables (Hugging Face Spaces secrets, Docker, etc.)
+    import os
+    u = os.environ.get("FXLAB_TV_USERNAME", "")
+    p = os.environ.get("FXLAB_TV_PASSWORD", "")
+    if u:
+        return u, p
+    # 3. Read secrets.toml directly (before Streamlit has loaded it this run)
     try:
         text = _SECRETS_PATH.read_text(encoding="utf-8")
         u_m = re.search(r'^\s*username\s*=\s*"([^"]*)"', text, re.MULTILINE)
