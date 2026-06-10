@@ -242,7 +242,9 @@ with st.sidebar:
     st.header("Settings")
     symbol = st.selectbox("Symbol", symbols, index=symbols.index("EURUSD") if "EURUSD" in symbols else 0)
     timeframe = st.selectbox("Timeframe", ["1d", "1h"], index=0)
-    source = st.selectbox("Source", ["auto", "synthetic", "stooq", "yfinance", "binance"], index=0)
+    source = st.selectbox(
+        "Source", ["auto", "synthetic", "stooq", "yfinance", "binance", "csv"], index=0
+    )
 
     st.subheader("Date range")
     start_date = st.date_input("Start", value=pd.Timestamp("2020-01-01").date())
@@ -301,6 +303,45 @@ with tab_data:
                 st.dataframe(inv, use_container_width=True)
         except Exception as exc:  # noqa: BLE001
             st.error(f"Could not read cache inventory: {exc}")
+
+    st.subheader("Import CSV (TradingView / MT4 / MT5 / Dukascopy)")
+    if not isinstance(_data_mod, Exception):
+        up_col1, up_col2 = st.columns([1, 1])
+        with up_col1:
+            upload_symbol = st.text_input(
+                "Symbol for imported data", value=symbol, key="csv_symbol"
+            ).strip().upper()
+        with up_col2:
+            upload_tf = st.selectbox(
+                "Timeframe of the CSV", ["1d", "1h", "4h", "15m"], key="csv_tf"
+            )
+        uploaded = st.file_uploader(
+            "Drop an exported chart CSV here (delimiter and column names are auto-detected)",
+            type=["csv", "txt"],
+            key="csv_upload",
+        )
+        if uploaded is not None and st.button("Import into cache", key="btn_import_csv"):
+            import tempfile
+            from fxlab.data.sources import csv_import as _csv_import
+
+            try:
+                with tempfile.NamedTemporaryFile(
+                    suffix=".csv", delete=False
+                ) as tmp:
+                    tmp.write(uploaded.getvalue())
+                    tmp_path = tmp.name
+                imported = _csv_import.import_csv(
+                    tmp_path, symbol=upload_symbol, timeframe=upload_tf
+                )
+                _load_ohlcv.clear()
+                st.success(
+                    f"Imported {len(imported):,} bars for {upload_symbol} "
+                    f"({upload_tf}): {imported.index[0].date()} → "
+                    f"{imported.index[-1].date()}. "
+                    f"Select source 'csv' in the sidebar to use it."
+                )
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"CSV import failed: {exc}")
 
     st.subheader(f"Candlestick preview — {symbol}")
     try:

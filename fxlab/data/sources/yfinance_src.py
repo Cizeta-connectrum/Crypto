@@ -48,6 +48,41 @@ _INTERVAL_MAP: dict[str, str] = {
     "4h": "1h",   # yfinance has no 4 h; caller may resample
 }
 
+# Yahoo only serves hourly bars for roughly the last 730 days; asking for
+# more returns an empty frame. Stay one day inside the limit.
+_INTRADAY_MAX_DAYS = 729
+
+
+def _history_kwargs(
+    interval: str, start: str | None, end: str | None
+) -> dict[str, str]:
+    """Build the date-range kwargs for ``Ticker.history``.
+
+    * Intraday (1h): clamp ``start`` into Yahoo's ~730-day window (a too-early
+      start would silently return an empty frame).
+    * Daily with no ``start``: request ``period="max"`` (yfinance's default
+      period is only one month).
+    """
+    kwargs: dict[str, str] = {}
+    if interval == "1h":
+        limit = pd.Timestamp.utcnow().tz_localize(None).normalize() - pd.Timedelta(
+            days=_INTRADAY_MAX_DAYS
+        )
+        s = pd.Timestamp(start) if start else None
+        clamped = limit if s is None or s < limit else s
+        kwargs["start"] = clamped.strftime("%Y-%m-%d")
+        if end:
+            kwargs["end"] = end
+    elif start:
+        kwargs["start"] = start
+        if end:
+            kwargs["end"] = end
+    else:
+        kwargs["period"] = "max"
+        if end:
+            kwargs["end"] = end
+    return kwargs
+
 
 def _tickers_for(symbol: str) -> list[str]:
     """Return the list of yfinance tickers to try for *symbol*."""
@@ -105,10 +140,9 @@ def fetch(
             tkr = yf.Ticker(ticker)
             df = tkr.history(
                 interval=interval,
-                start=start,
-                end=end,
                 auto_adjust=True,
                 actions=False,
+                **_history_kwargs(interval, start, end),
             )
         except Exception as exc:  # noqa: BLE001
             log.debug("yfinance error for %s: %s", ticker, exc)

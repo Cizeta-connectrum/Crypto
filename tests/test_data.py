@@ -450,3 +450,34 @@ def test_validate_ohlcv_rejects_duplicate_index():
     )
     with pytest.raises(ValueError, match="unique"):
         validate_ohlcv(df)
+
+
+def test_yfinance_history_kwargs_clamps_intraday():
+    from fxlab.data.sources.yfinance_src import _INTRADAY_MAX_DAYS, _history_kwargs
+    import pandas as pd
+
+    limit = pd.Timestamp.utcnow().tz_localize(None).normalize() - pd.Timedelta(
+        days=_INTRADAY_MAX_DAYS
+    )
+
+    # Too-early start for 1h is clamped into Yahoo's window.
+    kw = _history_kwargs("1h", "2015-01-01", None)
+    assert pd.Timestamp(kw["start"]) == limit
+
+    # Recent start is preserved.
+    recent = (limit + pd.Timedelta(days=100)).strftime("%Y-%m-%d")
+    kw = _history_kwargs("1h", recent, "2030-01-01")
+    assert kw["start"] == recent and kw["end"] == "2030-01-01"
+
+    # No start for 1h still requests the full allowed window.
+    kw = _history_kwargs("1h", None, None)
+    assert pd.Timestamp(kw["start"]) == limit
+
+    # Daily with no start asks for the maximum period, not yfinance's
+    # one-month default.
+    kw = _history_kwargs("1d", None, None)
+    assert kw == {"period": "max"}
+
+    # Daily with an explicit range passes it through unchanged.
+    kw = _history_kwargs("1d", "2015-01-01", "2020-01-01")
+    assert kw == {"start": "2015-01-01", "end": "2020-01-01"}
