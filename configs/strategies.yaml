@@ -1,0 +1,495 @@
+# FXLab strategy library — declarative expansion to EXACTLY 300 strategies.
+#
+# Per-family counts (tally — MUST sum to 300):
+#   TREND (92):
+#     sma_cross 10, ema_cross 10, hull_ma_trend 10, kama_trend 8,
+#     macd_signal 10, ma_ribbon 8, supertrend 10, psar_trend 8,
+#     ichimoku 8, adx_trend 10
+#   BREAKOUT/CHANNEL (50):
+#     donchian_breakout 12, bollinger_breakout 10, keltner_breakout 8,
+#     atr_volatility_breakout 10, rolling_high_low 10
+#   MEAN REVERSION (62):
+#     rsi_meanrev 12, bollinger_fade 10, zscore_reversion 10, williams_r 8,
+#     cci_reversion 8, stochastic_reversion 8, double_seven 6
+#   MOMENTUM (28):
+#     roc_momentum 10, dual_momentum 8, rsi_momentum 10
+#   OSCILLATOR (24):
+#     trix_signal 8, aroon_cross 8, cmo_momentum 8
+#   PATTERN (20):
+#     engulfing_pattern 6, heikin_ashi_trend 8, inside_bar_breakout 6
+#   SEASONAL (12):
+#     day_of_week 6, turn_of_month 6
+#   COMBO (12):
+#     trend_pullback 6, bollinger_trend_filter 3, macd_adx_combo 3
+#
+#   92 + 50 + 62 + 28 + 24 + 20 + 12 + 12 = 300
+#
+# Grid forms per family:
+#   params: explicit list of param dicts (used verbatim, in order)
+#   grid:   cartesian product over declared name->[values] (declaration order)
+#   defaults: merged under every produced combination
+#   id_keys: which param keys appear in the id (in order); default = all keys
+
+families:
+
+  # ---------------- TREND (92) ----------------
+
+  sma_cross:                       # 10
+    factory: sma_cross
+    prefix: sma_cross
+    id_keys: [fast, slow]
+    params:
+      - {fast: 5,  slow: 20}
+      - {fast: 5,  slow: 50}
+      - {fast: 10, slow: 30}
+      - {fast: 10, slow: 50}
+      - {fast: 10, slow: 100}
+      - {fast: 20, slow: 50}
+      - {fast: 20, slow: 100}
+      - {fast: 20, slow: 200}
+      - {fast: 50, slow: 100}
+      - {fast: 50, slow: 200}
+
+  ema_cross:                       # 10
+    factory: ema_cross
+    prefix: ema_cross
+    id_keys: [fast, slow]
+    params:
+      - {fast: 5,  slow: 20}
+      - {fast: 8,  slow: 21}
+      - {fast: 9,  slow: 26}
+      - {fast: 10, slow: 30}
+      - {fast: 12, slow: 26}
+      - {fast: 12, slow: 50}
+      - {fast: 20, slow: 50}
+      - {fast: 20, slow: 100}
+      - {fast: 50, slow: 100}
+      - {fast: 50, slow: 200}
+
+  hull_ma_trend:                   # 10
+    factory: hull_ma_trend
+    prefix: hull
+    id_keys: [period]
+    grid:
+      period: [9, 16, 20, 25, 36, 49, 55, 64, 81, 100]
+
+  kama_trend:                      # 8
+    factory: kama_trend
+    prefix: kama
+    id_keys: [period]
+    grid:
+      period: [10, 14, 16, 20, 24, 30, 40, 50]
+
+  macd_signal:                     # 10
+    factory: macd_signal
+    prefix: macd
+    id_keys: [fast, slow, signal]
+    params:
+      - {fast: 12, slow: 26, signal: 9}
+      - {fast: 8,  slow: 21, signal: 5}
+      - {fast: 8,  slow: 24, signal: 9}
+      - {fast: 5,  slow: 35, signal: 5}
+      - {fast: 10, slow: 30, signal: 9}
+      - {fast: 12, slow: 26, signal: 5}
+      - {fast: 15, slow: 30, signal: 9}
+      - {fast: 19, slow: 39, signal: 9}
+      - {fast: 6,  slow: 19, signal: 9}
+      - {fast: 24, slow: 52, signal: 18}
+
+  ma_ribbon:                       # 8
+    factory: ma_ribbon
+    prefix: ribbon
+    id_keys: [base, step, count]
+    params:
+      - {base: 10, step: 10, count: 5}
+      - {base: 10, step: 20, count: 5}
+      - {base: 5,  step: 5,  count: 6}
+      - {base: 8,  step: 8,  count: 6}
+      - {base: 10, step: 10, count: 6}
+      - {base: 20, step: 20, count: 5}
+      - {base: 5,  step: 10, count: 8}
+      - {base: 10, step: 15, count: 8}
+
+  supertrend:                      # 10
+    factory: supertrend
+    prefix: supertrend
+    id_keys: [period, mult]
+    params:
+      - {period: 7,  mult: 2.0}
+      - {period: 7,  mult: 3.0}
+      - {period: 10, mult: 1.5}
+      - {period: 10, mult: 2.0}
+      - {period: 10, mult: 3.0}
+      - {period: 10, mult: 4.0}
+      - {period: 14, mult: 2.0}
+      - {period: 14, mult: 3.0}
+      - {period: 20, mult: 3.0}
+      - {period: 20, mult: 4.0}
+
+  psar_trend:                      # 8
+    factory: psar_trend
+    prefix: psar
+    id_keys: [step, max]
+    params:
+      - {step: 0.01, max: 0.1}
+      - {step: 0.01, max: 0.2}
+      - {step: 0.02, max: 0.1}
+      - {step: 0.02, max: 0.2}
+      - {step: 0.02, max: 0.3}
+      - {step: 0.03, max: 0.2}
+      - {step: 0.03, max: 0.3}
+      - {step: 0.04, max: 0.4}
+
+  ichimoku:                        # 8
+    factory: ichimoku
+    prefix: ichimoku
+    id_keys: [mode, conv, base, span_b]
+    params:
+      - {mode: tk,   conv: 9,  base: 26, span_b: 52}
+      - {mode: tk,   conv: 7,  base: 22, span_b: 44}
+      - {mode: tk,   conv: 10, base: 30, span_b: 60}
+      - {mode: tk,   conv: 12, base: 24, span_b: 48}
+      - {mode: kumo, conv: 9,  base: 26, span_b: 52}
+      - {mode: kumo, conv: 7,  base: 22, span_b: 44}
+      - {mode: kumo, conv: 10, base: 30, span_b: 60}
+      - {mode: kumo, conv: 12, base: 24, span_b: 48}
+
+  adx_trend:                       # 10
+    factory: adx_trend
+    prefix: adx
+    id_keys: [period, threshold]
+    params:
+      - {period: 14, threshold: 20}
+      - {period: 14, threshold: 25}
+      - {period: 14, threshold: 30}
+      - {period: 10, threshold: 20}
+      - {period: 10, threshold: 25}
+      - {period: 20, threshold: 20}
+      - {period: 20, threshold: 25}
+      - {period: 7,  threshold: 25}
+      - {period: 28, threshold: 20}
+      - {period: 28, threshold: 25}
+
+  # ------------- BREAKOUT/CHANNEL (50) -------------
+
+  donchian_breakout:               # 12
+    factory: donchian_breakout
+    prefix: donchian
+    id_keys: [entry, exit]
+    params:
+      - {entry: 10, exit: 0}
+      - {entry: 20, exit: 0}
+      - {entry: 40, exit: 0}
+      - {entry: 55, exit: 0}
+      - {entry: 20, exit: 10}
+      - {entry: 40, exit: 20}
+      - {entry: 55, exit: 20}
+      - {entry: 100, exit: 0}
+      - {entry: 5,  exit: 0}
+      - {entry: 30, exit: 15}
+      - {entry: 50, exit: 25}
+      - {entry: 25, exit: 0}
+
+  bollinger_breakout:              # 10
+    factory: bollinger_breakout
+    prefix: bbbrk
+    id_keys: [period, num_std]
+    params:
+      - {period: 20, num_std: 2.0}
+      - {period: 20, num_std: 2.5}
+      - {period: 20, num_std: 3.0}
+      - {period: 10, num_std: 1.5}
+      - {period: 10, num_std: 2.0}
+      - {period: 30, num_std: 2.0}
+      - {period: 30, num_std: 2.5}
+      - {period: 50, num_std: 2.0}
+      - {period: 14, num_std: 2.0}
+      - {period: 14, num_std: 2.5}
+
+  keltner_breakout:                # 8
+    factory: keltner_breakout
+    prefix: kelt
+    id_keys: [period, mult]
+    params:
+      - {period: 20, mult: 1.5}
+      - {period: 20, mult: 2.0}
+      - {period: 20, mult: 2.5}
+      - {period: 10, mult: 1.5}
+      - {period: 10, mult: 2.0}
+      - {period: 30, mult: 2.0}
+      - {period: 14, mult: 2.0}
+      - {period: 14, mult: 2.5}
+
+  atr_volatility_breakout:         # 10
+    factory: atr_volatility_breakout
+    prefix: atrbrk
+    id_keys: [period, k]
+    params:
+      - {period: 14, k: 1.0}
+      - {period: 14, k: 1.5}
+      - {period: 14, k: 2.0}
+      - {period: 10, k: 1.0}
+      - {period: 10, k: 1.5}
+      - {period: 20, k: 1.5}
+      - {period: 20, k: 2.0}
+      - {period: 7,  k: 1.0}
+      - {period: 7,  k: 1.5}
+      - {period: 20, k: 2.5}
+
+  rolling_high_low:                # 10
+    factory: rolling_high_low
+    prefix: hilo
+    id_keys: [period]
+    grid:
+      period: [10, 20, 30, 40, 50, 55, 60, 80, 100, 120]
+
+  # ------------- MEAN REVERSION (62) -------------
+
+  rsi_meanrev:                     # 12
+    factory: rsi_meanrev
+    prefix: rsimr
+    id_keys: [period, lower, upper]
+    params:
+      - {period: 2,  lower: 10, upper: 90}
+      - {period: 2,  lower: 5,  upper: 95}
+      - {period: 3,  lower: 15, upper: 85}
+      - {period: 5,  lower: 20, upper: 80}
+      - {period: 7,  lower: 25, upper: 75}
+      - {period: 14, lower: 30, upper: 70}
+      - {period: 14, lower: 25, upper: 75}
+      - {period: 14, lower: 20, upper: 80}
+      - {period: 10, lower: 30, upper: 70}
+      - {period: 4,  lower: 20, upper: 80}
+      - {period: 21, lower: 30, upper: 70}
+      - {period: 9,  lower: 25, upper: 75}
+
+  bollinger_fade:                  # 10
+    factory: bollinger_fade
+    prefix: bbfade
+    id_keys: [period, num_std]
+    params:
+      - {period: 20, num_std: 2.0}
+      - {period: 20, num_std: 2.5}
+      - {period: 20, num_std: 1.5}
+      - {period: 10, num_std: 2.0}
+      - {period: 10, num_std: 1.5}
+      - {period: 30, num_std: 2.0}
+      - {period: 30, num_std: 2.5}
+      - {period: 50, num_std: 2.0}
+      - {period: 14, num_std: 2.0}
+      - {period: 14, num_std: 2.5}
+
+  zscore_reversion:                # 10
+    factory: zscore_reversion
+    prefix: zscore
+    id_keys: [period, threshold]
+    params:
+      - {period: 20, threshold: 1.0}
+      - {period: 20, threshold: 1.5}
+      - {period: 20, threshold: 2.0}
+      - {period: 10, threshold: 1.0}
+      - {period: 10, threshold: 1.5}
+      - {period: 30, threshold: 1.5}
+      - {period: 30, threshold: 2.0}
+      - {period: 50, threshold: 2.0}
+      - {period: 14, threshold: 1.5}
+      - {period: 14, threshold: 2.0}
+
+  williams_r:                      # 8
+    factory: williams_r
+    prefix: willr
+    id_keys: [period, lower, upper]
+    params:
+      - {period: 14, lower: -80, upper: -20}
+      - {period: 14, lower: -90, upper: -10}
+      - {period: 10, lower: -80, upper: -20}
+      - {period: 7,  lower: -80, upper: -20}
+      - {period: 20, lower: -80, upper: -20}
+      - {period: 20, lower: -90, upper: -10}
+      - {period: 28, lower: -80, upper: -20}
+      - {period: 5,  lower: -85, upper: -15}
+
+  cci_reversion:                   # 8
+    factory: cci_reversion
+    prefix: cci
+    id_keys: [period, threshold]
+    params:
+      - {period: 20, threshold: 100}
+      - {period: 20, threshold: 150}
+      - {period: 20, threshold: 200}
+      - {period: 14, threshold: 100}
+      - {period: 14, threshold: 150}
+      - {period: 30, threshold: 100}
+      - {period: 10, threshold: 100}
+      - {period: 40, threshold: 150}
+
+  stochastic_reversion:            # 8
+    factory: stochastic_reversion
+    prefix: stoch
+    id_keys: [k_period, d_period, lower, upper]
+    params:
+      - {k_period: 14, d_period: 3, lower: 20, upper: 80}
+      - {k_period: 14, d_period: 3, lower: 15, upper: 85}
+      - {k_period: 5,  d_period: 3, lower: 20, upper: 80}
+      - {k_period: 9,  d_period: 3, lower: 20, upper: 80}
+      - {k_period: 21, d_period: 5, lower: 20, upper: 80}
+      - {k_period: 14, d_period: 5, lower: 20, upper: 80}
+      - {k_period: 10, d_period: 3, lower: 25, upper: 75}
+      - {k_period: 8,  d_period: 3, lower: 20, upper: 80}
+
+  double_seven:                    # 6
+    factory: double_seven
+    prefix: dbl7
+    id_keys: [ma_period, n]
+    params:
+      - {ma_period: 200, n: 7}
+      - {ma_period: 100, n: 7}
+      - {ma_period: 50,  n: 7}
+      - {ma_period: 200, n: 5}
+      - {ma_period: 100, n: 5}
+      - {ma_period: 150, n: 7}
+
+  # ----------------- MOMENTUM (28) -----------------
+
+  roc_momentum:                    # 10
+    factory: roc_momentum
+    prefix: roc
+    id_keys: [period]
+    grid:
+      period: [5, 10, 14, 20, 30, 40, 50, 60, 90, 120]
+
+  dual_momentum:                   # 8
+    factory: dual_momentum
+    prefix: dualmom
+    id_keys: [fast, slow]
+    params:
+      - {fast: 20,  slow: 60}
+      - {fast: 20,  slow: 120}
+      - {fast: 30,  slow: 90}
+      - {fast: 10,  slow: 60}
+      - {fast: 60,  slow: 120}
+      - {fast: 30,  slow: 120}
+      - {fast: 20,  slow: 250}
+      - {fast: 60,  slow: 250}
+
+  rsi_momentum:                    # 10
+    factory: rsi_momentum
+    prefix: rsimom
+    id_keys: [period, lower, upper]
+    params:
+      - {period: 14, lower: 45, upper: 55}
+      - {period: 14, lower: 40, upper: 60}
+      - {period: 14, lower: 50, upper: 50}
+      - {period: 10, lower: 45, upper: 55}
+      - {period: 10, lower: 40, upper: 60}
+      - {period: 20, lower: 45, upper: 55}
+      - {period: 20, lower: 40, upper: 60}
+      - {period: 7,  lower: 45, upper: 55}
+      - {period: 28, lower: 45, upper: 55}
+      - {period: 9,  lower: 40, upper: 60}
+
+  # ---------------- OSCILLATOR (24) ----------------
+
+  trix_signal:                     # 8
+    factory: trix_signal
+    prefix: trix
+    id_keys: [period]
+    grid:
+      period: [9, 12, 14, 15, 18, 21, 30, 40]
+
+  aroon_cross:                     # 8
+    factory: aroon_cross
+    prefix: aroon
+    id_keys: [period]
+    grid:
+      period: [14, 20, 25, 30, 40, 50, 60, 100]
+
+  cmo_momentum:                    # 8
+    factory: cmo_momentum
+    prefix: cmo
+    id_keys: [period, threshold]
+    params:
+      - {period: 14, threshold: 0}
+      - {period: 14, threshold: 25}
+      - {period: 14, threshold: 50}
+      - {period: 9,  threshold: 0}
+      - {period: 9,  threshold: 50}
+      - {period: 20, threshold: 0}
+      - {period: 20, threshold: 50}
+      - {period: 30, threshold: 25}
+
+  # ----------------- PATTERN (20) -----------------
+
+  engulfing_pattern:               # 6
+    factory: engulfing_pattern
+    prefix: engulf
+    id_keys: [ma_period, hold]
+    params:
+      - {ma_period: 50,  hold: 3}
+      - {ma_period: 50,  hold: 5}
+      - {ma_period: 100, hold: 3}
+      - {ma_period: 100, hold: 5}
+      - {ma_period: 200, hold: 5}
+      - {ma_period: 20,  hold: 3}
+
+  heikin_ashi_trend:               # 8
+    factory: heikin_ashi_trend
+    prefix: ha
+    id_keys: [streak]
+    grid:
+      streak: [1, 2, 3, 4, 5, 6, 7, 8]
+
+  inside_bar_breakout:             # 6
+    factory: inside_bar_breakout
+    prefix: insidebar
+    id_keys: [hold]
+    grid:
+      hold: [1, 2, 3, 4, 5, 6]
+
+  # ----------------- SEASONAL (12) -----------------
+
+  day_of_week:                     # 6
+    factory: day_of_week
+    prefix: dow
+    id_keys: [weekday]
+    grid:
+      weekday: [0, 1, 2, 3, 4, 6]
+
+  turn_of_month:                   # 6
+    factory: turn_of_month
+    prefix: tom
+    id_keys: [n]
+    grid:
+      n: [1, 2, 3, 4, 5, 6]
+
+  # ------------------ COMBO (12) ------------------
+
+  trend_pullback:                  # 6
+    factory: trend_pullback
+    prefix: pullback
+    id_keys: [ma_period, rsi_period, lower, upper]
+    params:
+      - {ma_period: 200, rsi_period: 2,  lower: 10, upper: 90}
+      - {ma_period: 200, rsi_period: 14, lower: 30, upper: 70}
+      - {ma_period: 100, rsi_period: 2,  lower: 10, upper: 90}
+      - {ma_period: 100, rsi_period: 14, lower: 30, upper: 70}
+      - {ma_period: 50,  rsi_period: 5,  lower: 20, upper: 80}
+      - {ma_period: 150, rsi_period: 3,  lower: 15, upper: 85}
+
+  bollinger_trend_filter:          # 3
+    factory: bollinger_trend_filter
+    prefix: bbtrend
+    id_keys: [period, num_std, ma_period]
+    params:
+      - {period: 20, num_std: 2.0, ma_period: 100}
+      - {period: 20, num_std: 2.0, ma_period: 200}
+      - {period: 20, num_std: 2.5, ma_period: 100}
+
+  macd_adx_combo:                  # 3
+    factory: macd_adx_combo
+    prefix: macdadx
+    id_keys: [fast, slow, signal, adx_period, threshold]
+    params:
+      - {fast: 12, slow: 26, signal: 9, adx_period: 14, threshold: 20}
+      - {fast: 12, slow: 26, signal: 9, adx_period: 14, threshold: 25}
+      - {fast: 8,  slow: 21, signal: 5, adx_period: 14, threshold: 20}
