@@ -224,6 +224,52 @@ The test suite uses `--source synthetic` throughout so no network access is requ
 
 ## Free hosting / 無料デプロイ
 
+### Google Cloud — Cloud Shell (no install, instant trial)
+
+Open [https://shell.cloud.google.com](https://shell.cloud.google.com) (any
+Google account; Python is preinstalled) and run:
+
+```bash
+git clone <repo-url> && cd Crypto
+git checkout <branch>
+pip3 install --user -e .
+python3 -m fxlab download --symbols XAUUSD EURUSD BTCUSD
+python3 -m streamlit run app/streamlit_app.py --server.port 8080
+```
+
+Then click **Web Preview → Preview on port 8080** (top-right of the Cloud
+Shell window). Note: Cloud Shell sessions are ephemeral (the VM is recycled
+after ~20 minutes of inactivity; your home directory persists, the running
+app does not).
+
+### Google Cloud — Cloud Run (permanent URL)
+
+A `Dockerfile` is included. From Cloud Shell or any machine with `gcloud`:
+
+```bash
+gcloud run deploy fxlab \
+  --source . \
+  --region asia-northeast1 \
+  --memory 1Gi \
+  --allow-unauthenticated
+```
+
+Cloud Build builds the image and prints a permanent
+`https://fxlab-….run.app` URL. Notes:
+
+* `--allow-unauthenticated` makes the URL public; omit it to keep the
+  service private (access then requires `gcloud` identity tokens or IAP).
+* Storage is ephemeral — the parquet cache resets when instances scale to
+  zero. Re-download from the Data tab, or rely on Google Sheets export for
+  permanent history.
+* Google Sheets export works without a key file on Cloud Run: the module
+  falls back to Application Default Credentials. Enable the Sheets + Drive
+  APIs in the project and share the target spreadsheet with the service
+  account the Cloud Run revision runs as (shown in the service details;
+  defaults to `<project-number>-compute@developer.gserviceaccount.com`).
+* Costs: Cloud Run has a generous free tier; a low-traffic instance that
+  scales to zero typically stays within it.
+
 ### Streamlit Community Cloud
 
 1. Push this repository to GitHub.
