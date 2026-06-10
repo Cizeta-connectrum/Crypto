@@ -8,6 +8,7 @@ list      -- List strategy ids (with family and params).
 run       -- Run a single backtest and display metrics.
 sweep     -- Run all (strategy, symbol) combinations with ProcessPoolExecutor.
 report    -- Read a sweep CSV and print a leaderboard / per-family summary.
+export    -- Re-export a previously saved sweep CSV to Google Sheets.
 
 Entry point: ``main(argv=None) -> int``.
 """
@@ -506,6 +507,32 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
 
     print(f"Results saved → {out_path}")
 
+    # Optional Google Sheets export
+    if getattr(args, "gsheet", None):
+        try:
+            import pandas as _pd  # noqa: PLC0415
+            import fxlab.export.gsheets as _gsheets_mod  # type: ignore[import]
+
+            results_df = _pd.DataFrame(results)
+            run_meta = {
+                "symbols": " ".join(args.symbols),
+                "timeframe": args.timeframe,
+                "source": args.source,
+                "start": args.start or "",
+                "end": args.end or "",
+                "cost_bps": args.cost_bps,
+                "sl_atr": args.sl_atr or "",
+                "tp_atr": args.tp_atr or "",
+            }
+            sheet_url = _gsheets_mod.export_sweep(results_df, run_meta, args.gsheet)
+            print(f"Exported to Google Sheets → {sheet_url}")
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"Warning: Google Sheets export failed: {exc} "
+                "(check that the sheet is shared with the service-account email)",
+                file=sys.stderr,
+            )
+
     # Print leaderboard
     _print_leaderboard(results, metric=args.metric, top=args.top)
     return 0
@@ -614,6 +641,52 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: export
+# ---------------------------------------------------------------------------
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    """Re-export a previously saved sweep CSV to Google Sheets."""
+    in_path = Path(args.input)
+    if not in_path.exists():
+        return _err(f"File not found: {in_path}")
+
+    try:
+        import pandas as _pd  # noqa: PLC0415
+        results_df = _pd.read_csv(in_path)
+    except Exception as exc:  # noqa: BLE001
+        return _err(f"Could not read {in_path}: {exc}")
+
+    if results_df.empty:
+        print("CSV is empty; nothing to export.")
+        return 0
+
+    run_meta = {
+        "symbols": getattr(args, "symbols", "") or "",
+        "timeframe": getattr(args, "timeframe", "") or "",
+        "source": getattr(args, "source", "") or "",
+        "start": "",
+        "end": "",
+        "cost_bps": "",
+        "sl_atr": "",
+        "tp_atr": "",
+    }
+
+    try:
+        import fxlab.export.gsheets as _gsheets_mod  # type: ignore[import]
+        sheet_url = _gsheets_mod.export_sweep(results_df, run_meta, args.gsheet)
+        print(f"Exported to Google Sheets → {sheet_url}")
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"Warning: Google Sheets export failed: {exc} "
+            "(check that the sheet is shared with the service-account email)",
+            file=sys.stderr,
+        )
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
 
@@ -696,6 +769,8 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="Output CSV path (default: results/sweep.csv)")
     p_sweep.add_argument("--jobs", type=int, default=1, metavar="N",
                          help="Worker processes (default: 1; 0=cpu_count)")
+    p_sweep.add_argument("--gsheet", default=None, metavar="SPREADSHEET",
+                         help="Export results to Google Sheets (URL, ID, or title)")
 
     # ---- report ----
     p_report = sub.add_parser("report", help="Print leaderboard from a sweep CSV")
@@ -709,6 +784,20 @@ def _build_parser() -> argparse.ArgumentParser:
                           help="Filter by family")
     p_report.add_argument("--symbol", default=None, metavar="S",
                           help="Filter by symbol")
+
+    # ---- export ----
+    p_export = sub.add_parser(
+        "export",
+        help="Re-export a saved sweep CSV to Google Sheets",
+    )
+    p_export.add_argument("--in", dest="input", required=True, metavar="PATH",
+                          help="Input sweep CSV path")
+    p_export.add_argument("--gsheet", required=True, metavar="SPREADSHEET",
+                          help="Target Google Sheets spreadsheet (URL, ID, or title)")
+    p_export.add_argument("--timeframe", default="", metavar="TF",
+                          help="Timeframe label for run_meta (optional)")
+    p_export.add_argument("--source", default="", metavar="S",
+                          help="Source label for run_meta (optional)")
 
     return parser
 
@@ -724,6 +813,7 @@ _COMMANDS = {
     "run": _cmd_run,
     "sweep": _cmd_sweep,
     "report": _cmd_report,
+    "export": _cmd_export,
 }
 
 

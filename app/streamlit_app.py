@@ -545,6 +545,46 @@ with tab_sweep:
                     except Exception as exc:  # noqa: BLE001
                         st.warning(f"Could not render box plot: {exc}")
 
+                # Google Sheets export
+                st.subheader("Export to Google Sheets")
+                gsheet_target = st.text_input(
+                    "Google Sheets (URL / ID / title)",
+                    value="FXLab Results",
+                    key="sweep_gsheet_target",
+                )
+                if st.button("Export to Google Sheets", key="btn_gsheet_export"):
+                    _creds: dict | None = None
+                    try:
+                        if "gcp_service_account" in st.secrets:
+                            _creds = dict(st.secrets["gcp_service_account"])
+                    except Exception:  # noqa: BLE001
+                        pass  # st.secrets not available; fall back to env
+
+                    try:
+                        from fxlab.export.gsheets import export_sweep as _export_sweep  # type: ignore[import]
+                        _run_meta = {
+                            "symbols": " ".join(sweep_symbols) if sweep_symbols else "",
+                            "timeframe": timeframe,
+                            "source": source,
+                            "start": start_str or "",
+                            "end": end_str or "",
+                            "cost_bps": float(cost_bps),
+                            "sl_atr": sl_atr_val or "",
+                            "tp_atr": tp_atr_val or "",
+                        }
+                        with st.spinner("Exporting to Google Sheets…"):
+                            _sheet_url = _export_sweep(
+                                results_df,
+                                _run_meta,
+                                gsheet_target,
+                                credentials=_creds,
+                            )
+                        st.success(
+                            f"Exported successfully. [Open spreadsheet]({_sheet_url})"
+                        )
+                    except Exception as _exc:  # noqa: BLE001
+                        st.error(f"Google Sheets export failed: {_exc}")
+
 # ===================================================================
 # Tab: Compare
 # ===================================================================

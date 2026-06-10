@@ -20,6 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+gsheets = ["gspread>=6.0", "google-auth>=2.0"]
 
 [project.scripts]
 fxlab = "fxlab.cli:main"

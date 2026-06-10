@@ -1,0 +1,10 @@
+pandas
+numpy
+pyyaml
+pyarrow
+requests
+yfinance
+plotly
+streamlit
+gspread
+google-auth

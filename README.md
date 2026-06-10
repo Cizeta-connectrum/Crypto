@@ -6,6 +6,7 @@ FXLabは、外国為替・貴金属・暗号資産の取引戦略を検証する
 約30の戦略ファミリーから合計300の具体的な戦略を生成し、CLIとStreamlitダッシュボードの両方で操作できます。
 データはParquet形式でローカルキャッシュされ、オフライン環境でも再実行可能です。
 ネットワーク接続がない環境でも `--source synthetic` で決定論的な合成データを使って全機能をテストできます。
+Streamlit Community CloudやHugging Face Spacesで無料ホスティングが可能で、Google Sheetsエクスポートにより永続的なバックテスト履歴を管理できます。
 
 ---
 
@@ -218,6 +219,100 @@ The test suite uses `--source synthetic` throughout so no network access is requ
 - `tests/test_engine.py` — hand-computed equity/cost/SL-TP cases
 - `tests/test_strategies.py` — 300 unique ids, no-lookahead check
 - `tests/test_data.py` — synthetic determinism, cache round-trip
+
+---
+
+## Free hosting / 無料デプロイ
+
+### Streamlit Community Cloud
+
+1. Push this repository to GitHub.
+2. Go to [https://share.streamlit.io](https://share.streamlit.io) and sign in with your GitHub account.
+3. Click **New app**, pick your repository and branch, and set the main file to `app/streamlit_app.py`.
+4. Click **Deploy**.
+
+**Important notes for the free tier:**
+
+- The app **sleeps when idle** (roughly 7 days of inactivity).  Waking it up takes ~30 seconds on the first visit.
+- Storage is **ephemeral** — the Parquet cache in `data/cache/` resets on every restart.  Use `--source synthetic` for zero-network demos, or re-download data after each wake-up.
+- Use the **Google Sheets export** (see below) to keep a permanent history of sweep results across restarts.
+
+To add Google service-account credentials, go to your app's **Settings → Secrets** on Streamlit Cloud and paste the JSON key fields as a TOML table:
+
+```toml
+[gcp_service_account]
+type = "service_account"
+project_id = "your-project-id"
+private_key_id = "..."
+private_key = "-----BEGIN RSA PRIVATE KEY-----\n..."
+client_email = "your-sa@your-project.iam.gserviceaccount.com"
+# … all other fields from the downloaded JSON key
+```
+
+### Alternative: Hugging Face Spaces
+
+Create a new Space using the **Streamlit SDK** template, push the repo, and set `app/streamlit_app.py` as the entry point.  Hugging Face Spaces also has a free tier with similar ephemeral-storage caveats.
+
+---
+
+## Google Sheets export
+
+FXLab can append sweep results to a Google Sheets spreadsheet for permanent history tracking.
+
+### GCP setup (one-time)
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and create (or select) a project.
+2. Enable **Google Sheets API** and **Google Drive API** for the project.
+3. Navigate to **IAM & Admin → Service Accounts** and create a new service account.
+4. Under the service account, go to **Keys → Add Key → Create new key (JSON)** and download the JSON key file.
+
+### Credential configuration
+
+**Local / CLI**
+
+```bash
+export FXLAB_GSHEET_CREDENTIALS=/path/to/service-account-key.json
+```
+
+Or pass the path inline:
+
+```bash
+python -m fxlab sweep --symbols EURUSD XAUUSD --source synthetic \
+    --gsheet "FXLab Results"
+# Uses FXLAB_GSHEET_CREDENTIALS (or GOOGLE_APPLICATION_CREDENTIALS) env var
+```
+
+**Streamlit Community Cloud**
+
+Paste the full JSON key as a `[gcp_service_account]` TOML block in **App Settings → Secrets** (see above).
+
+### Usage
+
+```bash
+# Sweep and export results in one step
+python -m fxlab sweep \
+    --symbols EURUSD XAUUSD BTCUSD \
+    --strategies all \
+    --source synthetic \
+    --out results/sweep.csv \
+    --gsheet "FXLab Results"
+
+# Re-export a previously saved CSV
+python -m fxlab export \
+    --in results/sweep.csv \
+    --gsheet "FXLab Results" \
+    --timeframe 1d \
+    --source synthetic
+```
+
+The **"FXLab Results"** spreadsheet will contain:
+
+- A **"runs"** worksheet — one index row per export (run ID, timestamp, meta, best strategy / Sharpe).
+- A **per-run worksheet** (named by run ID e.g. `20240610-142301`) — the full results table.
+
+### Sharing
+
+If the spreadsheet is **created by the service account** it lives in the SA's Drive.  For easier access it is usually better to **create the spreadsheet yourself**, then share it with the SA's `client_email` (Editor role); use the spreadsheet URL or title as the `--gsheet` value.  Either approach works — the SA can also create sheets from scratch.
 
 ---
 
