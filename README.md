@@ -3,8 +3,8 @@ title: FXLab
 emoji: 📈
 colorFrom: blue
 colorTo: green
-sdk: streamlit
-app_file: app/streamlit_app.py
+sdk: docker
+app_port: 7860
 pinned: false
 ---
 
