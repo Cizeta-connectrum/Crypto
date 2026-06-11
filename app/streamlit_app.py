@@ -456,6 +456,104 @@ def _format_ranking_df(df: pd.DataFrame) -> pd.DataFrame:
     return disp
 
 
+def _row_float(row: Any, key: str, default: float | None) -> float | None:
+    """Float value from a dict/Series row; NaN/empty/missing -> default."""
+    try:
+        val = row.get(key)
+    except AttributeError:
+        return default
+    f = _safe_float(val)
+    if f is None or math.isnan(f):
+        return default
+    return f
+
+
+def _row_str(row: Any, key: str, default: str) -> str:
+    """String value from a dict/Series row; NaN/empty/missing -> default."""
+    try:
+        val = row.get(key)
+    except AttributeError:
+        return default
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return default
+    s = str(val).strip()
+    if not s or s.lower() == "nan":
+        return default
+    return s
+
+
+@st.cache_resource(show_spinner=False)
+def _strategy_index() -> dict[str, Any]:
+    """id -> Strategy map, built once per process (300 strategies)."""
+    if isinstance(_strats_mod, Exception):
+        return {}
+    return {s.id: s for s in _strats_mod.build_all()}
+
+
+def _render_strategy_detail(
+    strategy_id: str,
+    symbol: str,
+    timeframe: str,
+    source: str,
+    start: str | None,
+    end: str | None,
+    cost_bps: float,
+    sl_atr: float | None,
+    tp_atr: float | None,
+    key_prefix: str = "detail",
+) -> None:
+    """Render one ranking row's strategy: params, metrics and charts."""
+    st.subheader(f"📋 {strategy_id} の詳細")
+    _risk = ""
+    if sl_atr:
+        _risk += f" | SL: ATR×{sl_atr:g}"
+    if tp_atr:
+        _risk += f" | TP: ATR×{tp_atr:g}"
+    st.caption(
+        f"対象: {symbol} / {timeframe} / {source} | "
+        f"期間: {start or '最初'}〜{end or '最新'} | "
+        f"コスト: {cost_bps}bps{_risk}"
+    )
+
+    strat = _strategy_index().get(strategy_id)
+    if strat is None:
+        st.warning(f"戦略 {strategy_id} が見つかりませんでした（現在の戦略リストに存在しません）。")
+        return
+
+    st.markdown(f"**ファミリー:** `{strat.family}`")
+    params = getattr(strat, "params", None) or {}
+    if params:
+        params_df = pd.DataFrame(
+            {"パラメータ": [str(k) for k in params], "値": [str(v) for v in params.values()]}
+        )
+        st.dataframe(params_df, use_container_width=True, hide_index=True)
+
+    with st.spinner("検証中…"):
+        try:
+            df_detail = _load_ohlcv(symbol, timeframe, source, start or None, end or None)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"データを取得できませんでした: {exc}")
+            return
+        try:
+            pos_detail = strat.generate(df_detail)
+            bt_kw_d: dict[str, Any] = {"cost_bps": float(cost_bps)}
+            if sl_atr:
+                bt_kw_d["sl_atr"] = float(sl_atr)
+            if tp_atr:
+                bt_kw_d["tp_atr"] = float(tp_atr)
+            res_detail = _engine_mod.run_backtest(df_detail, pos_detail, **bt_kw_d)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"バックテストに失敗しました: {exc}")
+            return
+
+    _display_metrics_grid(res_detail.metrics)
+    st.plotly_chart(
+        _backtest_fig(df_detail, res_detail, symbol, strategy_id),
+        use_container_width=True,
+        key=f"{key_prefix}_fig_{strategy_id}",
+    )
+
+
 def _prepare_ranking_history_rows(top_df: pd.DataFrame, meta: dict) -> pd.DataFrame:
     """Attach run metadata columns to the top rows of a ranking run."""
     rows = top_df.copy()
@@ -670,11 +768,32 @@ with tab_ranking:
             sorted_rank.insert(0, "順位", range(1, len(sorted_rank) + 1))
 
             st.subheader(f"📊 今回のランキング（{sort_col_r}順）")
-            st.dataframe(
+            st.caption("行をクリックすると詳細が表示されます")
+            event_cur = st.dataframe(
                 _format_ranking_df(sorted_rank),
                 use_container_width=True,
                 hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="rank_table_current",
             )
+            sel_cur = list(event_cur.selection.rows)
+            if sel_cur:
+                row_cur = sorted_rank.iloc[sel_cur[0]]
+                _sl_cur = _row_float(meta_r, "sl_atr", sl_atr_val)
+                _tp_cur = _row_float(meta_r, "tp_atr", tp_atr_val)
+                _render_strategy_detail(
+                    str(row_cur["strategy"]),
+                    symbol=_row_str(meta_r, "symbol", symbol),
+                    timeframe=_row_str(meta_r, "timeframe", timeframe),
+                    source=_row_str(meta_r, "source", source),
+                    start=_row_str(meta_r, "start", start_str or "") or None,
+                    end=_row_str(meta_r, "end", end_str or "") or None,
+                    cost_bps=_row_float(meta_r, "cost_bps", float(cost_bps)) or 0.0,
+                    sl_atr=_sl_cur if _sl_cur else None,
+                    tp_atr=_tp_cur if _tp_cur else None,
+                    key_prefix="detail_current",
+                )
 
         # --- All-time leaderboard ---
         st.subheader("🏛 歴代ランキング（通算ベスト50）")
@@ -738,11 +857,37 @@ with tab_ranking:
                 c for c in _RANKING_METRIC_COLS if c in best_hist.columns
             ]
             show_cols = [c for c in show_cols if c in best_hist.columns]
-            st.dataframe(
+            st.caption("行をクリックすると詳細が表示されます")
+            event_hist = st.dataframe(
                 _format_ranking_df(best_hist[show_cols]),
                 use_container_width=True,
                 hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="rank_table_history",
             )
+            sel_hist = list(event_hist.selection.rows)
+            if sel_hist:
+                row_hist = best_hist.iloc[sel_hist[0]]
+                sid_hist = _row_str(row_hist, "strategy", "")
+                if not sid_hist:
+                    st.warning("選択した行に戦略IDがありません。")
+                else:
+                    _sl_h = _row_float(row_hist, "sl_atr", None)
+                    _tp_h = _row_float(row_hist, "tp_atr", None)
+                    _cost_h = _row_float(row_hist, "cost_bps", 1.0)
+                    _render_strategy_detail(
+                        sid_hist,
+                        symbol=_row_str(row_hist, "symbol", symbol),
+                        timeframe=_row_str(row_hist, "timeframe", timeframe),
+                        source=_row_str(row_hist, "source", source),
+                        start=_row_str(row_hist, "start", start_str or "") or None,
+                        end=_row_str(row_hist, "end", end_str or "") or None,
+                        cost_bps=_cost_h if _cost_h is not None else 1.0,
+                        sl_atr=_sl_h if _sl_h else None,
+                        tp_atr=_tp_h if _tp_h else None,
+                        key_prefix="detail_history",
+                    )
         else:
             st.info("まだ履歴がありません。上のボタンで検証を実行すると記録されます。")
 
